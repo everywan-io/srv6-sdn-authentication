@@ -3,8 +3,8 @@
 from ipaddress import IPv6Interface, IPv6Network
 from pyroute2 import IPRoute
 
-import tunnel_utils
-import nat_utils
+from pymerang import tunnel_utils
+from pymerang import nat_utils
 
 VXLAN_DSTPORT = 4789
 ENABLE_UDP_CSUM = False

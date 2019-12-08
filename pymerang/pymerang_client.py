@@ -1,0 +1,233 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from argparse import ArgumentParser
+from ping3 import ping, verbose_ping
+import logging
+import grpc
+import json
+from threading import Thread
+
+from pymerang import utils
+#from pymerang import nat_utils
+
+from pymerang import pymerang_pb2
+from pymerang import pymerang_pb2_grpc
+from pymerang import status_codes_pb2
+
+from nat_utils import nat_discovery_client
+
+# Device ID
+#DEVICE_ID = 0
+# Features supported by the device
+#FEATURES = [
+#    {'name': 'gRPC', 'port': 12345},
+#    {'name': 'SSH', 'port': 22}
+#]
+# Loopback IP address of the controller
+#CONTROLLER_IP = '::1'
+DEFAULT_PYMERANG_SERVER_IP = '2000::1'
+# Port of the gRPC server executing on the controller
+DEFAULT_PYMERANG_SERVER_PORT = 50061
+# Loopback IP address of the device
+DEFAULT_PYMERANG_CLIENT_IP = 'fcff:1::1'
+# Configuration of STUN server/client
+#STUN_SOURCE_IP = DEVICE_IP
+#STUN_SOURCE_PORT = 50031
+#STUN_SERVER_HOST = CONTROLLER_IP
+#STUN_SERVER_PORT = 3478
+# Souce IP address of the NAT discovery
+#DEFAULT_NAT_DISCOVERY_CLIENT_IP = '2000:0:0:1::1'
+DEFAULT_NAT_DISCOVERY_CLIENT_IP = '::'
+# Source port of the NAT discovery
+DEFAULT_NAT_DISCOVERY_CLIENT_PORT = 4789
+# IP address of the NAT discovery
+DEFAULT_NAT_DISCOVERY_SERVER_IP = '2000::1'
+# Port number of the NAT discovery
+DEFAULT_NAT_DISCOVERY_SERVER_PORT = 50081
+# Config file
+DEFAULT_CONFIG_FILE = '/tmp/config.json'
+
+
+class PymerangDevice:
+
+    def __init__(self, server_ip, server_port, nat_discovery_server_ip,
+            nat_discovery_server_port, nat_discovery_client_ip,
+            nat_discovery_client_port, config_file):
+        self.server_ip = server_ip
+        self.server_port = server_port
+        self.nat_discovery_server_ip = nat_discovery_server_ip
+        self.nat_discovery_server_port = nat_discovery_server_port
+        self.nat_discovery_client_ip = nat_discovery_client_ip
+        self.nat_discovery_client_port = nat_discovery_client_port
+        #self.config_file = config_file
+        self.nat_type = None
+        self.external_ip = None
+        self.external_port = None
+        self.tunnel_mode = None
+
+        with open(config_file, 'r') as json_file:
+            config = json.load(json_file)
+        self.device_id = config['id']
+        self.features = config['features']
+
+    def process_configuration(self, configuration):
+        pass
+
+    def register_device(self, stub):
+        # Prepare the registration message
+        request = pymerang_pb2.RegisterDeviceRequest()
+        request.device.id = self.device_id
+        for feature in self.features:
+            f = request.device.features.add()
+            f.name = feature['name']
+            if feature.get('port') is not None:
+                f.port = feature['port']
+        tunnel_info = request.tunnel_info
+        #tunnel_info.tunnel_mode = nat_utils.NAT_TYPES[self.nat_type]
+        tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
+        tunnel_info.device_id = self.device_id
+        if self.external_ip is not None:
+            tunnel_info.device_external_ip = self.external_ip
+            tunnel_info.device_external_port = self.external_port
+        # Send the registration request
+        response = stub.RegisterDevice(request)
+        if response.status == status_codes_pb2.STATUS_OK:
+            # Device authenticated
+            configuration = response.device_configuration
+            tunnel_info = response.tunnel_info
+            logging.info('Device authenticated')
+            logging.info('Configuration received: %s' % configuration)
+            # Process the configuration received
+            self.process_configuration(configuration)
+            # Create the tunnel
+            self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+            # Send a keep-alive messages to keep the tunnel opened, if required
+            if self.tunnel_mode.require_keep_alive_messages:
+                Thread(target=utils.send_keep_alive_udp, daemon=True)
+            # Return the configuration
+            return configuration
+        elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+            # Authentication failed
+            logging.warning('Authentication failed')
+            return
+        else:
+            # Unknown status code
+            logging.warning('Unknown status code: %s' % response.status)
+            return
+
+    def unregister_device(self, device_id):
+        # Get tunnel info
+        tunnel_info = self.tunnel_info
+        # Destroy the tunnel
+        self.tunnel_mode.destroy_tunnel_device_endpoing(tunnel_info)
+
+    def run(self):
+        # Initialize tunnel state
+        tunnel_state = utils.TunnelState()
+        # Run the stun test to discover the NAT type
+        #nat_type, external_ip, external_port = nat_utils.run_stun(STUN_SOURCE_IP,
+        #                                                          STUN_SOURCE_PORT,
+        #                                                          STUN_SERVER_HOST,
+        #                                                          STUN_SERVER_PORT)
+        nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+            self.nat_discovery_client_ip, self.nat_discovery_client_port,
+            self.nat_discovery_server_ip, self.nat_discovery_server_port
+        )
+        self.nat_type = nat_type
+        self.external_ip = external_ip
+        self.external_port = external_port
+        logging.info('Client started')
+        if nat_type is None:
+            logging.error('Error in STUN client')
+        #logging.info('NAT detected: %s' % nat_utils.NAT_DESC[nat_type])
+        logging.info('NAT detected: %s' % nat_type)
+        # Get the best tunnel mode working with the NAT type
+        self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
+        logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
+        # Establish a gRPC connection to the controller
+        server_address = '[%s]:%s' % (self.server_ip, self.server_port)
+        with grpc.insecure_channel(server_address) as channel:
+            # Get the stub
+            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            logging.info("-------------- GetConfiguration --------------")
+            # Start registration procedure
+            self.register_device(stub)
+
+
+# Parse options
+def parse_arguments():
+    # Get parser
+    parser = ArgumentParser(
+        description='pymerang client'
+    )
+    parser.add_argument(
+        '-d', '--debug', action='store_true', help='Activate debug logs'
+    )
+    parser.add_argument(
+        '-s', '--secure', action='store_true', help='Activate secure mode'
+    )
+    parser.add_argument(
+        '-i', '--server-ip', dest='server_ip',
+        default=DEFAULT_PYMERANG_SERVER_IP, help='Server IP address'
+    )
+    parser.add_argument(
+        '-p', '--server-port', dest='server_port',
+        default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
+    )
+    parser.add_argument(
+        '-n', '--nat-discovery-server-ip', dest='nat_discovery_server_ip',
+        default=DEFAULT_NAT_DISCOVERY_SERVER_IP, help='NAT discovery server IP'
+    )
+    parser.add_argument(
+        '-m', '--nat-discovery-server-port', dest='nat_discovery_server_port',
+        default=DEFAULT_NAT_DISCOVERY_SERVER_PORT, help='NAT discovery server port'
+    )
+    parser.add_argument(
+        '-l', '--nat-discovery-client-ip', dest='nat_discovery_client_ip',
+        default=DEFAULT_NAT_DISCOVERY_CLIENT_IP, help='NAT discovery client IP'
+    )
+    parser.add_argument(
+        '-o', '--nat-discovery-client-port', dest='nat_discovery_client_port',
+        default=DEFAULT_NAT_DISCOVERY_CLIENT_PORT, help='NAT discovery client port'
+    )
+    parser.add_argument(
+        '-c', '--config-file', dest='config_file',
+        default=DEFAULT_CONFIG_FILE, help='Config file'
+    )
+    # Parse input parameters
+    args = parser.parse_args()
+    # Return the arguments
+    return args
+
+if __name__ == '__main__':
+    args = parse_arguments()
+    # Setup properly the logger
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    # Setup properly the secure mode
+    if args.secure:
+        secure = True
+    else:
+        secure = False
+    # Server IP
+    server_ip = args.server_ip
+    # Server port
+    server_port = args.server_port
+    # NAT discovery server IP
+    nat_discovery_server_ip = args.nat_discovery_server_ip
+    # NAT discovery server port
+    nat_discovery_server_port = args.nat_discovery_server_port
+    # NAT discovery client IP
+    nat_discovery_client_ip = args.nat_discovery_client_ip
+    # NAT discovery client port
+    nat_discovery_client_port = args.nat_discovery_client_port
+    # Config file
+    config_file = args.config_file
+    # Start client
+    client = PymerangDevice(server_ip, server_port, nat_discovery_server_ip,
+        nat_discovery_server_port, nat_discovery_client_ip,
+        nat_discovery_client_port, config_file)
+    client.run()

@@ -2,10 +2,10 @@
 
 from ipaddress import IPv6Interface, IPv6Network
 from pyroute2 import IPRoute
-import etherws
+from pymerang import etherws
 
-import tunnel_utils
-import nat_utils
+from pymerang import tunnel_utils
+from pymerang import nat_utils
 
 
 class Args:

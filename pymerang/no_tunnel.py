@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-import nat_utils
-import tunnel_utils
+from pymerang import nat_utils
+from pymerang import tunnel_utils
 
 class NoTunnel(tunnel_utils.TunnelMode):
 

@@ -7,23 +7,23 @@ import logging
 import time
 import inspect
 
-import utils
-import nat_utils
+from pymerang import utils
+#from pymerang import nat_utils
 
 import grpc
 
-import pymerang_pb2
-import pymerang_pb2_grpc
-import status_codes_pb2
+from pymerang import pymerang_pb2
+from pymerang import pymerang_pb2_grpc
+from pymerang import status_codes_pb2
 
 # Loopback IP address of the controller
-CONTROLLER_IP = '::1'
+CONTROLLER_IP = '::'
 # Port of the gRPC server executing on the controller
-CONTROLLER_GRPC_PORT = 50051
+CONTROLLER_GRPC_PORT = 50061
 # IP address of the NAT discovery
-NAT_DISCOVERY_SERVER_HOST = '::1'
+#NAT_DISCOVERY_SERVER_HOST = '::1'
 # Port number of the NAT discovery
-NAT_DISCOVERY_SERVER_PORT = 50071
+#NAT_DISCOVERY_SERVER_PORT = 50081
 
 
 class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
@@ -64,10 +64,13 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
 
 class PymerangController:
 
-    def __init__(self, ip='::1', port=50051):
+    def __init__(self, ip='::1', port=50051, devices=None):
         self.ip = ip
         self.port = port
-        self.devices = dict()
+        if devices is not None:
+            self.devices = devices
+        else:
+            self.devices = dict()
         self.configurations = dict()
         self.tunnel_state = None
 
@@ -89,6 +92,7 @@ class PymerangController:
         self.devices[device_id]['features'] = features
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
+        logging.info('New device registered: %s' % self.devices[device_id])
         # Return the configuration
         return status_codes_pb2.STATUS_OK, tunnel_info
 
@@ -102,7 +106,11 @@ class PymerangController:
     def load_device_config(self):
         #self.devices[0] = dict()
         #self.devices[0]['device_configuration'] = {}
-        self.configurations[0] = {}
+        self.configurations = {
+            1: {},
+            2: {},
+            3: {},
+        }
 
     def serve(self):
         # Initialize tunnel state
@@ -123,9 +131,12 @@ class PymerangController:
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    p = Process(target=nat_utils.run_nat_discovery_server,
-                args=(NAT_DISCOVERY_SERVER_HOST, NAT_DISCOVERY_SERVER_PORT))
+    #p = Process(target=nat_utils.run_nat_discovery_server,
+    #            args=(NAT_DISCOVERY_SERVER_HOST, NAT_DISCOVERY_SERVER_PORT))
+    #p.daemon = True
     #p.start()
-    controller = PymerangController(CONTROLLER_IP, CONTROLLER_GRPC_PORT)
+    # Devices
+    devices = dict()
+    controller = PymerangController(CONTROLLER_IP, CONTROLLER_GRPC_PORT, devices)
     controller.load_device_config()
     controller.serve()

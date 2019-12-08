@@ -3,12 +3,12 @@
 from ipaddress import ip_address, IPv6Network
 from urllib.parse import urlparse
 
-import nat_utils
-import no_tunnel
-import vxlan_utils
-import etherws_utils
+from pymerang import nat_utils
+from pymerang import no_tunnel
+from pymerang import vxlan_utils
+from pymerang import etherws_utils
 
-import pymerang_pb2
+from pymerang import pymerang_pb2
 
 TUNNEL_MODES = {
     'no_tunnel': pymerang_pb2.TunnelMode.no_tunnel,
