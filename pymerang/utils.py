@@ -2,6 +2,8 @@
 
 from ipaddress import ip_address, IPv6Network
 from urllib.parse import urlparse
+from netifaces import AF_INET, AF_INET6, AF_LINK, AF_PACKET, AF_BRIDGE
+import netifaces as ni
 
 from pymerang import nat_utils
 from pymerang import no_tunnel
@@ -17,6 +19,47 @@ TUNNEL_MODES = {
 }
 
 REVERSE_TUNNEL_MODES = {v: k for k, v in TUNNEL_MODES.items()}
+
+
+def get_local_interfaces():
+    interfaces = dict()
+    for ifname in ni.interfaces():
+        interfaces[ifname] = dict()
+        # Get layer 2 information
+        interfaces[ifname]['mac_addrs'] = list()
+        mac_addrs = ni.ifaddresses(ifname).get(AF_LINK, [])
+        for mac_addr in mac_addrs:
+            broadcast = mac_addr.get('broadcast')
+            addr = mac_addr.get('addr')
+            interfaces[ifname]['mac_addrs'].append({
+                'broadcast': broadcast,
+                'addr': addr
+            })
+        # Get layer 3 information
+        interfaces[ifname]['ipv4_addrs'] = list()
+        ipv4_addrs = ni.ifaddresses(ifname).get(AF_INET, [])
+        for ipv4_addr in ipv4_addrs:
+            broadcast = ipv4_addr.get('broadcast')
+            netmask = ipv4_addr.get('netmask')
+            addr = ipv4_addr.get('addr')
+            interfaces[ifname]['ipv4_addrs'].append({
+                'broadcast': broadcast,
+                'netmask': netmask,
+                'addr': addr
+            })
+        interfaces[ifname]['ipv6_addrs'] = list()
+        ipv6_addrs = ni.ifaddresses(ifname).get(AF_INET6, [])
+        for ipv6_addr in ipv6_addrs:
+            broadcast = ipv6_addr.get('broadcast')
+            netmask = ipv6_addr.get('netmask')
+            addr = ipv6_addr.get('addr')
+            interfaces[ifname]['ipv6_addrs'].append({
+                'broadcast': broadcast,
+                'netmask': netmask,
+                'addr': addr
+            })
+    return interfaces
+
 
 def send_ping(dst_ip):
     # Returns delay in seconds

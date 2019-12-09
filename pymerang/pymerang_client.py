@@ -83,6 +83,32 @@ class PymerangDevice:
             f.name = feature['name']
             if feature.get('port') is not None:
                 f.port = feature['port']
+        interfaces = utils.get_local_interfaces()
+        for ifname, ifinfo in interfaces.items():
+            interface = request.interfaces.add()
+            interface.name = ifname
+            for addr in ifinfo['mac_addrs']:
+                mac_addr = interface.mac_addrs.add()
+                if addr.get('broadcast') is not None:
+                    mac_addr.broadcast = addr['broadcast']
+                if addr.get('addr') is not None:
+                    mac_addr.addr = addr['addr']
+            for addr in ifinfo['ipv4_addrs']:
+                ipv4_addr = interface.ipv4_addrs.add()
+                if addr.get('broadcast') is not None:
+                    ipv4_addr.broadcast = addr['broadcast']
+                if addr.get('netmask') is not None:
+                    ipv4_addr.netmask = addr['netmask']
+                if addr.get('addr') is not None:
+                    ipv4_addr.addr = addr['addr']
+            for addr in ifinfo['ipv6_addrs']:
+                ipv6_addr = interface.ipv6_addrs.add()
+                if addr.get('broadcast') is not None:
+                    ipv6_addr.broadcast = addr['broadcast']
+                if addr.get('netmask') is not None:
+                    ipv6_addr.netmask = addr['netmask']
+                if addr.get('addr') is not None:
+                    ipv6_addr.addr = addr['addr']
         tunnel_info = request.tunnel_info
         #tunnel_info.tunnel_mode = nat_utils.NAT_TYPES[self.nat_type]
         tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]

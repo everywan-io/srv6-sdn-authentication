@@ -47,11 +47,40 @@ message TunnelInfo {
     uint32 device_external_port = 7;
 }
 
+/* MAC address */
+message MACAddress {
+  string broadcast = 1;
+  string addr = 2;
+}
+
+/* IPv4 address */
+message IPv4Address {
+  string broadcast = 1;
+  string addr = 2;
+  string netmask = 3;
+}
+
+/* IPv6 address */
+message IPv6Address {
+  string broadcast = 1;
+  string addr = 2;
+  string netmask = 3;
+}
+
+/* Interface */
+message Interface {
+    string name = 1;
+    repeated MACAddress mac_addrs = 2;
+    repeated IPv4Address ipv4_addrs = 3;
+    repeated IPv6Address ipv6_addrs = 4;
+}
+
 /* RegisterDevice request message */
 message RegisterDeviceRequest {
   Device device = 1;
   AuthData auth_data = 2;
   TunnelInfo tunnel_info = 3;
+  repeated Interface interfaces = 4;
 }
 
 /* Device Configuration */

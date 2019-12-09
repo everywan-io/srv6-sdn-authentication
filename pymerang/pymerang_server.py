@@ -42,6 +42,34 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             port = feature.port
             features[name] = {name: name, port: port}
         auth_data = request.auth_data
+        interfaces = dict()
+        for interface in request.interfaces:
+            ifname = interface.name
+            mac_addrs = list()
+            ipv4_addrs = list()
+            ipv6_addrs = list()
+            for mac_addr in interface.mac_addrs:
+                mac_addrs.append({
+                    'broadcast': mac_addr.broadcast,
+                    'addr': mac_addr.addr
+                })
+            for ipv4_addr in interface.ipv4_addrs:
+                ipv4_addrs.append({
+                    'broadcast': ipv4_addr.broadcast,
+                    'netmask': ipv4_addr.netmask,
+                    'addr': ipv4_addr.addr
+                })
+            for ipv6_addr in interface.ipv6_addrs:
+                ipv6_addrs.append({
+                    'broadcast': ipv6_addr.broadcast,
+                    'netmask': ipv6_addr.netmask,
+                    'addr': ipv6_addr.addr
+                })
+            interfaces[ifname] = {
+                'mac_addrs': mac_addrs,
+                'ipv4_addrs': ipv4_addrs,
+                'ipv6_addrs': ipv6_addrs,
+            }
         tunnel_info = request.tunnel_info
         # Register the device
         reply = pymerang_pb2.RegisterDeviceReply()
@@ -49,7 +77,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = tunnel_info.device_external_port
         response, tunnel_info = self.controller.register_device(
-            device_id, features, auth_data, reply.tunnel_info
+            device_id, features, interfaces, auth_data, reply.tunnel_info
         )
         if response is not status_codes_pb2.STATUS_OK:
             return (pymerang_pb2
@@ -77,7 +105,7 @@ class PymerangController:
     def authenticate_device(self, device_id, auth_data):
         return True     # TODO
 
-    def register_device(self, device_id, features, auth_data, tunnel_info):
+    def register_device(self, device_id, features, interfaces, auth_data, tunnel_info):
         # Device authentication
         authenticated = self.authenticate_device(device_id, auth_data)
         if not authenticated:
@@ -90,6 +118,7 @@ class PymerangController:
         # Register the device
         self.devices[device_id] = dict()
         self.devices[device_id]['features'] = features
+        self.devices[device_id]['interfaces'] = interfaces
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
         logging.info('New device registered: %s' % self.devices[device_id])
