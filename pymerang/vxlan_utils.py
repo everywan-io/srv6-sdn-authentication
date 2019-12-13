@@ -6,6 +6,8 @@ from pyroute2 import IPRoute
 from pymerang import tunnel_utils
 from pymerang import nat_utils
 
+import socket
+
 VXLAN_DSTPORT = 4789
 ENABLE_UDP_CSUM = False
 #VXLAN_SRCPORT_MIN = 49152
@@ -104,7 +106,7 @@ def del_address(device, address, mask):
 
 class TunnelVXLAN(tunnel_utils.TunnelMode):
 
-    def __init__(self, name, priority, net_allocator):
+    def __init__(self, name, priority, ipv6_net_allocator, ipv4_net_allocator):
         require_keep_alive_messages = True
         '''
         supported_nat_types = [nat_utils.NAT_TYPE['OpenInternet'],
@@ -116,7 +118,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         supported_nat_types = ['OpenInternet', 'NAT']
         # Create tunnel mode
         super().__init__(name, require_keep_alive_messages,
-                         supported_nat_types, priority, net_allocator)
+                         supported_nat_types, priority, ipv6_net_allocator, ipv4_net_allocator)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
         # Extract the device ID
@@ -145,15 +147,26 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         device_external_ip = tunnel_info.device_external_ip
         device_external_port = tunnel_info.device_external_port
         # Generate private addresses for the device and controller VTEPs
-        net = self.net_allocator.nextNet()   # Change to make dependant from the device ID?
-        net = IPv6Network(net)
-        controller_vtep_ip = net[0].__str__()
-        device_vtep_ip = net[1].__str__()
-        vtep_mask = net.prefixlen
+        if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET6:
+            net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
+            net = IPv6Network(net)
+            controller_vtep_ip = net[0].__str__()
+            device_vtep_ip = net[1].__str__()
+            vtep_mask = net.prefixlen
+        elif tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET:
+            net = self.ipv4_net_allocator.nextNet()   # Change to make dependant from the device ID?
+            net = IPv6Network(net)
+            controller_vtep_ip = net[0].__str__()
+            device_vtep_ip = net[1].__str__()
+            vtep_mask = net.prefixlen
+        else:
+            print('Invalid family address: %s' % tunnel_info.device_external_ip)
+            exit(-1)
+        self.device_ip[device_id] = device_vtep_ip
         # Create the VXLAN interface
         create_vxlan(device='%s-%s' % (self.name, device_id), vni=device_id,
-                     remote=device_received_ip, local=controller_ip,
-                     dstport=device_received_port, srcport_min=VXLAN_DSTPORT,
+                     remote=device_external_ip, local=controller_ip,
+                     dstport=device_external_port, srcport_min=VXLAN_DSTPORT,
                      srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
                      udp6zerocsumtx=ENABLE_UDP_CSUM,
                      udp6zerocsumrx=not ENABLE_UDP_CSUM)

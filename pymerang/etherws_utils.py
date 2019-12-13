@@ -134,7 +134,7 @@ def del_address(device, address, mask):
 
 class TunnelEtherWs(tunnel_utils.TunnelMode):
 
-    def __init__(self, name, priority, net_allocator):
+    def __init__(self, name, priority, ipv6_net_allocator, ipv4_net_allocator):
         require_keep_alive_messages = False
         '''
         supported_nat_types = [nat_utils.NAT_TYPE['Blocked'],
@@ -148,7 +148,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         supported_nat_types = ['OpenInternet', 'NAT', 'Blocked']
         # Create tunnel mode
         super().__init__(name, require_keep_alive_messages,
-                         supported_nat_types, priority, net_allocator)
+                         supported_nat_types, priority, ipv6_net_allocator, ipv4_net_allocator)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
         # Extract the device ID
@@ -169,11 +169,22 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # Extract the device ID
         device_id = tunnel_info.device_id
         # Generate private addresses for the device and controller VTEPs
-        net = self.net_allocator.nextNet()   # Change to make dependant from the device ID?
-        net = IPv6Network(net)
-        controller_vtep_ip = net[0].__str__()
-        device_vtep_ip = net[1].__str__()
-        vtep_mask = net.prefixlen
+        if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET6:
+            net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
+            net = IPv6Network(net)
+            controller_vtep_ip = net[0].__str__()
+            device_vtep_ip = net[1].__str__()
+            vtep_mask = net.prefixlen
+        elif tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET:
+            net = self.ipv4_net_allocator.nextNet()   # Change to make dependant from the device ID?
+            net = IPv6Network(net)
+            controller_vtep_ip = net[0].__str__()
+            device_vtep_ip = net[1].__str__()
+            vtep_mask = net.prefixlen
+        else:
+            print('Invalid family address: %s' % tunnel_info.device_external_ip)
+            exit(-1)
+        self.device_ip[device_id] = device_vtep_ip
         # Create the EtherWs TAP interface
         create_etherws_tap(device='%s-%s' % (self.name, device_id))
         # Add the private address

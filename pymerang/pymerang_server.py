@@ -35,6 +35,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
     def RegisterDevice(self, request, context):
         # Extract the parameters from the registration request
         logging.debug('New device connected: %s' % request)
+        mgmtip = context.peer()
+        mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
         device_id = request.device.id
         features = dict()
         for feature in request.device.features:
@@ -54,16 +56,22 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                     'addr': mac_addr.addr
                 })
             for ipv4_addr in interface.ipv4_addrs:
+                prefix = ipv4_addr.netmask.split('/')
+                if len(prefix) > 1:
+                    ipv4_addr.netmask = prefix[1]
                 ipv4_addrs.append({
                     'broadcast': ipv4_addr.broadcast,
                     'netmask': ipv4_addr.netmask,
                     'addr': ipv4_addr.addr
                 })
             for ipv6_addr in interface.ipv6_addrs:
+                prefix = ipv6_addr.netmask.split('/')
+                if len(prefix) > 1:
+                    ipv6_addr.netmask = prefix[1]
                 ipv6_addrs.append({
                     'broadcast': ipv6_addr.broadcast,
                     'netmask': ipv6_addr.netmask,
-                    'addr': ipv6_addr.addr
+                    'addr': ipv6_addr.addr.split('%')[0]
                 })
             interfaces[ifname] = {
                 'mac_addrs': mac_addrs,
@@ -77,7 +85,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = tunnel_info.device_external_port
         response, tunnel_info = self.controller.register_device(
-            device_id, features, interfaces, auth_data, reply.tunnel_info
+            device_id, features, interfaces, mgmtip, auth_data, reply.tunnel_info
         )
         if response is not status_codes_pb2.STATUS_OK:
             return (pymerang_pb2
@@ -105,7 +113,7 @@ class PymerangController:
     def authenticate_device(self, device_id, auth_data):
         return True     # TODO
 
-    def register_device(self, device_id, features, interfaces, auth_data, tunnel_info):
+    def register_device(self, device_id, features, interfaces, mgmtip, auth_data, tunnel_info):
         # Device authentication
         authenticated = self.authenticate_device(device_id, auth_data)
         if not authenticated:
@@ -119,6 +127,9 @@ class PymerangController:
         self.devices[device_id] = dict()
         self.devices[device_id]['features'] = features
         self.devices[device_id]['interfaces'] = interfaces
+        if tunnel_mode.get_device_ip(device_id) is not None:
+            mgmtip = tunnel_mode.get_device_ip(device_id)
+        self.devices[device_id]['mgmtip'] = mgmtip
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
         logging.info('New device registered: %s' % self.devices[device_id])

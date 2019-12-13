@@ -26,7 +26,7 @@ message AuthData {
 /* Message representing a device */
 message Device {
     uint32 id = 1;
-    repeated Feature features = 2;    
+    repeated Feature features = 2;
 }
 
 /* Tunnel Mode */

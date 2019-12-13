@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from ipaddress import ip_address, IPv6Network
+from ipaddress import ip_address, IPv6Network, IPv4Network
 from urllib.parse import urlparse
 from netifaces import AF_INET, AF_INET6, AF_LINK, AF_PACKET, AF_BRIDGE
 import netifaces as ni
@@ -20,6 +20,15 @@ TUNNEL_MODES = {
 
 REVERSE_TUNNEL_MODES = {v: k for k, v in TUNNEL_MODES.items()}
 
+def parse_ip_port(netloc):
+    try:
+        ip = ip_address(netloc)
+        port = None
+    except ValueError:
+        parsed = urlparse('//{}'.format(netloc))
+        ip = ip_address(parsed.hostname)
+        port = parsed.port
+    return ip, port
 
 def get_local_interfaces():
     interfaces = dict()
@@ -95,8 +104,8 @@ def start_keep_alive_udp(dst_ip, dst_port, interval=30):
         time.sleep(interval)
 
 
-# Allocates private nets
-class NetAllocator(object):
+# Allocates private IPv6 nets
+class IPv6NetAllocator(object):
 
   bit = 16
   net = 'fcfa::/%d' % bit
@@ -105,6 +114,22 @@ class NetAllocator(object):
   def __init__(self): 
     print('*** Calculating Available Private Nets')
     self.subnets = (IPv6Network(self.net)).subnets(new_prefix=self.prefix)
+  
+  def nextNet(self):
+    net = next(self.subnets)
+    return net.__str__()
+
+
+# Allocates private IPv4 nets
+class IPv4NetAllocator(object):
+
+  bit = 8
+  net = '172.0.0.0/%d' % bit
+  prefix = 30
+
+  def __init__(self): 
+    print('*** Calculating Available Private Nets')
+    self.subnets = (IPv4Network(self.net)).subnets(new_prefix=self.prefix)
   
   def nextNet(self):
     net = next(self.subnets)
@@ -130,7 +155,8 @@ class TunnelState:
         for nat_type in nat_utils.NAT_TYPES:
             self.nat_to_tunnel_modes[nat_type] = dict()
         # Initialize network allocator
-        self.net_allocator = NetAllocator()
+        self.ipv6_net_allocator = IPv6NetAllocator()
+        self.ipv4_net_allocator = IPv4NetAllocator()
         # Initialize tunnel modes
         self.init_nat_to_tunnel_modes()
 
@@ -158,8 +184,8 @@ class TunnelState:
     def init_nat_to_tunnel_modes(self):
         self.register_tunnel_mode(no_tunnel.NoTunnel('no_tunnel', 0))
         self.register_tunnel_mode(vxlan_utils.TunnelVXLAN(
-            'vxlan', 5, self.net_allocator)
+            'vxlan', 5, self.ipv6_net_allocator, self.ipv4_net_allocator)
         )
         self.register_tunnel_mode(
-            etherws_utils.TunnelEtherWs('etherws', 10, self.net_allocator)
+            etherws_utils.TunnelEtherWs('etherws', 10, self.ipv6_net_allocator, self.ipv4_net_allocator)
         )
