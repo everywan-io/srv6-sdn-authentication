@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 from argparse import ArgumentParser
-from ping3 import ping, verbose_ping
+#from ping3 import ping, verbose_ping
 import logging
 import grpc
 import json
