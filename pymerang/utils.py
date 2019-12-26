@@ -5,7 +5,8 @@ from urllib.parse import urlparse
 from netifaces import AF_INET, AF_INET6, AF_LINK, AF_PACKET, AF_BRIDGE
 import netifaces as ni
 
-from pymerang import nat_utils
+#from pymerang import nat_utils
+from nat_utils.nat_discovery_server import NAT_TYPES
 from pymerang import no_tunnel
 from pymerang import vxlan_utils
 from pymerang import etherws_utils
@@ -20,6 +21,7 @@ TUNNEL_MODES = {
 
 REVERSE_TUNNEL_MODES = {v: k for k, v in TUNNEL_MODES.items()}
 
+'''
 def parse_ip_port(netloc):
     try:
         ip = ip_address(netloc)
@@ -29,6 +31,7 @@ def parse_ip_port(netloc):
         ip = ip_address(parsed.hostname)
         port = parsed.port
     return ip, port
+'''
 
 def get_local_interfaces():
     interfaces = dict()
@@ -141,7 +144,12 @@ def parse_ip_port(netloc):
         ip = ip_address(netloc)
         port = None
     except ValueError:
-        parsed = urlparse('//{}'.format(netloc))
+        if netloc.startswith('ipv6:'):
+            netloc = 'ipv6://' + netloc[5:]
+        elif netloc.startswith('ipv4:'):
+            netloc = 'ipv4://' + netloc[5:]
+        #parsed = urlparse('//{}'.format(netloc))
+        parsed = urlparse(netloc)
         ip = ip_address(parsed.hostname).__str__()
         port = parsed.port
     return ip, port
@@ -152,7 +160,7 @@ class TunnelState:
     def __init__(self):
         self.tunnel_modes = dict()
         self.nat_to_tunnel_modes = dict()
-        for nat_type in nat_utils.NAT_TYPES:
+        for nat_type in NAT_TYPES:
             self.nat_to_tunnel_modes[nat_type] = dict()
         # Initialize network allocator
         self.ipv6_net_allocator = IPv6NetAllocator()

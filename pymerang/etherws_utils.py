@@ -5,7 +5,6 @@ from pyroute2 import IPRoute
 from pymerang import etherws
 
 from pymerang import tunnel_utils
-from pymerang import nat_utils
 
 
 class Args:

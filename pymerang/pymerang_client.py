@@ -7,6 +7,8 @@ import logging
 import grpc
 import json
 from threading import Thread
+from socket import AF_INET6, AF_INET
+
 
 from pymerang import utils
 #from pymerang import nat_utils
@@ -15,7 +17,7 @@ from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
 
-from nat_utils import nat_discovery_client
+from nat_utils import nat_discovery_client, utils as nat_utils
 
 # Device ID
 #DEVICE_ID = 0
@@ -38,7 +40,9 @@ DEFAULT_PYMERANG_CLIENT_IP = 'fcff:1::1'
 #STUN_SERVER_PORT = 3478
 # Souce IP address of the NAT discovery
 #DEFAULT_NAT_DISCOVERY_CLIENT_IP = '2000:0:0:1::1'
-DEFAULT_NAT_DISCOVERY_CLIENT_IP = '::'
+DEFAULT_NAT_DISCOVERY_CLIENT_IP = ''
+#DEFAULT_NAT_DISCOVERY_CLIENT_IPV6 = '::'
+#DEFAULT_NAT_DISCOVERY_CLIENT_IPV4 = '0.0.0.0'
 # Source port of the NAT discovery
 DEFAULT_NAT_DISCOVERY_CLIENT_PORT = 4789
 # IP address of the NAT discovery
@@ -172,7 +176,13 @@ class PymerangDevice:
         self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
         logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
         # Establish a gRPC connection to the controller
-        server_address = '[%s]:%s' % (self.server_ip, self.server_port)
+        if nat_utils.getAddressFamily(self.server_ip) == AF_INET6:
+            server_address = '[%s]:%s' % (self.server_ip, self.server_port)
+        elif nat_utils.getAddressFamily(self.server_ip) == AF_INET:
+            server_address = '%s:%s' % (self.server_ip, self.server_port)
+        else:
+            print('Invalid address %s' % self.server_ip)
+            exit(-1)
         with grpc.insecure_channel(server_address) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)

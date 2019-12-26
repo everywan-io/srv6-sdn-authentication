@@ -4,7 +4,6 @@ from ipaddress import IPv6Interface, IPv6Network
 from pyroute2 import IPRoute
 
 from pymerang import tunnel_utils
-from pymerang import nat_utils
 
 import socket
 

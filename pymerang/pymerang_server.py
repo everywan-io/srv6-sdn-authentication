@@ -61,7 +61,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                     ipv4_addr.netmask = prefix[1]
                 ipv4_addrs.append({
                     'broadcast': ipv4_addr.broadcast,
-                    'netmask': ipv4_addr.netmask,
+                    'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
                     'addr': ipv4_addr.addr
                 })
             for ipv6_addr in interface.ipv6_addrs:
@@ -92,7 +92,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                     .RegisterDeviceReply(status=response))
         # Generate the configuration for the device
         #config = self.controller.devices[device_id]['device_configuration']
-        config = self.controller.configurations[device_id]
+        #config = self.controller.configurations[device_id]
         reply.status = status_codes_pb2.STATUS_OK
         #reply.device_configuration =       # TODO
         return reply
