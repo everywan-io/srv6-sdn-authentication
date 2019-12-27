@@ -25,7 +25,7 @@ message AuthData {
 
 /* Message representing a device */
 message Device {
-    uint32 id = 1;
+    string id = 1;
     repeated Feature features = 2;
 }
 
@@ -39,7 +39,7 @@ enum TunnelMode {
 /* Tunnel Info */
 message TunnelInfo {
     TunnelMode tunnel_mode = 1;
-    uint32 device_id = 2;
+    string device_id = 2;
     string device_vtep_ip = 3;
     string controller_vtep_ip = 4;
     uint32 vtep_mask = 5;
