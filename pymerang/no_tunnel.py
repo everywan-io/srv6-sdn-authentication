@@ -4,13 +4,13 @@ from pymerang import tunnel_utils
 
 class NoTunnel(tunnel_utils.TunnelMode):
 
-    def __init__(self, name, priority, ipv6_net_allocator=None, ipv4_net_allocator=None):
+    def __init__(self, name, priority, server_ip=None, ipv6_net_allocator=None, ipv4_net_allocator=None):
         require_keep_alive_messages = False
         #supported_nat_types = [nat_utils.NAT_TYPE['OpenInternet']]
         supported_nat_types = ['OpenInternet']
         # Create tunnel mode
         super().__init__(name, require_keep_alive_messages,
-                         supported_nat_types, priority, ipv6_net_allocator, ipv4_net_allocator)
+                         supported_nat_types, priority, server_ip, ipv6_net_allocator, ipv4_net_allocator)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
     	pass
