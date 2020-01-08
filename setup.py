@@ -40,6 +40,7 @@ setup(
         'grpcio-tools>=1.19.0',
         'python-pytun>=2.3.0',
         'tornado>=6.0.3',
-        'websocket-client>=0.56.0'
+        'websocket-client>=0.56.0',
+        'ping3>=2.4.0'
     ]
 )

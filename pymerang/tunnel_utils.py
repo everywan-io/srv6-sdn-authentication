@@ -44,14 +44,18 @@ def getAddressFamily(ip):
 class TunnelMode:
 
     def __init__(self, name, require_keep_alive_messages, supported_nat_types,
-                 priority, ipv6_net_allocator, ipv4_net_allocator):
+                 priority, server_ip, ipv6_net_allocator, ipv4_net_allocator):
         self.name = name
         self.require_keep_alive_messages = require_keep_alive_messages
         self.supported_nat_types = supported_nat_types
         self.priority = priority
+        self.server_ip = server_ip
         self.ipv6_net_allocator = ipv6_net_allocator
         self.ipv4_net_allocator = ipv4_net_allocator
         self.device_ip = dict()
+        #self.controller_ip = None
+        self.controller_ip = dict()
+        self.vtep_mask = dict()
 
     def create_tunnel_device_endpoint(self, tunnel_info):
         raise NotImplementedError
@@ -65,5 +69,14 @@ class TunnelMode:
     def destroy_tunnel_controller_endpoint(self, tunnel_info):
         raise NotImplementedError
 
+    def update_tunnel_device_endpoint(self, tunnel_info):
+        raise NotImplementedError
+
+    def update_tunnel_controller_endpoint(self, tunnel_info):
+        raise NotImplementedError
+
     def get_device_ip(self, device_id):
         return self.device_ip.get(device_id)
+
+    def get_controller_ip(self, device_id):
+        return self.controller_ip.get(device_id)

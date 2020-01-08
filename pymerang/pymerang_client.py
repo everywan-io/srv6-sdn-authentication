@@ -82,6 +82,8 @@ class PymerangDevice:
         # Prepare the registration message
         request = pymerang_pb2.RegisterDeviceRequest()
         request.device.id = self.device_id
+
+        print('\n\n\ndev id', self.device_id)
         for feature in self.features:
             f = request.device.features.add()
             f.name = feature['name']
@@ -120,6 +122,7 @@ class PymerangDevice:
         if self.external_ip is not None:
             tunnel_info.device_external_ip = self.external_ip
             tunnel_info.device_external_port = self.external_port
+        print('tun info', tunnel_info)
         # Send the registration request
         response = stub.RegisterDevice(request)
         if response.status == status_codes_pb2.STATUS_OK:
@@ -132,9 +135,15 @@ class PymerangDevice:
             self.process_configuration(configuration)
             # Create the tunnel
             self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+            # Get the controller address
+            controller_ip = self.tunnel_mode.get_controller_ip(self.device_id)
+            print('\n\ncontroller ip', controller_ip)
+            if controller_ip is None:
+                controller_ip = self.server_ip
             # Send a keep-alive messages to keep the tunnel opened, if required
             if self.tunnel_mode.require_keep_alive_messages:
-                Thread(target=utils.send_keep_alive_udp, daemon=True)
+                #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
+                Thread(target=utils.start_keep_alive_icmp, args=(controller_ip, 3, 3,  self.update_device_registration), daemon=False).start()
             # Return the configuration
             return configuration
         elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
@@ -150,11 +159,113 @@ class PymerangDevice:
         # Get tunnel info
         tunnel_info = self.tunnel_info
         # Destroy the tunnel
-        self.tunnel_mode.destroy_tunnel_device_endpoing(tunnel_info)
+        self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
+
+    def update_device_registration(self):
+        # Establish a gRPC connection to the controller
+        if nat_utils.getAddressFamily(self.server_ip) == AF_INET6:
+            server_address = '[%s]:%s' % (self.server_ip, self.server_port)
+        elif nat_utils.getAddressFamily(self.server_ip) == AF_INET:
+            server_address = '%s:%s' % (self.server_ip, self.server_port)
+        else:
+            print('Invalid address %s' % self.server_ip)
+            exit(-1)
+        with grpc.insecure_channel(server_address) as channel:
+            # Get the stub
+            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            # Prepare the registration message
+            request = pymerang_pb2.RegisterDeviceRequest()
+            request.device.id = self.device_id
+            tunnel_info = request.tunnel_info
+            tunnel_info.device_id = self.device_id
+            self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
+            logging.info('Sending handshake')
+            nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+                self.nat_discovery_client_ip, self.nat_discovery_client_port,
+                self.nat_discovery_server_ip, self.nat_discovery_server_port
+            )
+            if nat_type != self.nat_type:
+                print(nat_type)
+                logging.error('Error: NAT type changed')
+                exit(-1)
+            #if external_ip == self.external_ip and external_port == self.external_port:
+            #    return
+            self.nat_type = nat_type
+            self.external_ip = external_ip
+            self.external_port = external_port
+            
+            
+            #for feature in self.features:
+            #    f = request.device.features.add()
+            #    f.name = feature['name']
+            #    if feature.get('port') is not None:
+            #        f.port = feature['port']
+            #interfaces = utils.get_local_interfaces()
+            #for ifname, ifinfo in interfaces.items():
+            #    interface = request.interfaces.add()
+            #    interface.name = ifname
+            #    for addr in ifinfo['mac_addrs']:
+            #        mac_addr = interface.mac_addrs.add()
+            #        if addr.get('broadcast') is not None:
+            #            mac_addr.broadcast = addr['broadcast']
+            #        if addr.get('addr') is not None:
+            #            mac_addr.addr = addr['addr']
+            #    for addr in ifinfo['ipv4_addrs']:
+            #        ipv4_addr = interface.ipv4_addrs.add()
+            #        if addr.get('broadcast') is not None:
+            #            ipv4_addr.broadcast = addr['broadcast']
+            #        if addr.get('netmask') is not None:
+            #            ipv4_addr.netmask = addr['netmask']
+            #        if addr.get('addr') is not None:
+            #            ipv4_addr.addr = addr['addr']
+            #    for addr in ifinfo['ipv6_addrs']:
+            #        ipv6_addr = interface.ipv6_addrs.add()
+            #        if addr.get('broadcast') is not None:
+            #            ipv6_addr.broadcast = addr['broadcast']
+            #        if addr.get('netmask') is not None:
+            #            ipv6_addr.netmask = addr['netmask']
+            #        if addr.get('addr') is not None:
+            #            ipv6_addr.addr = addr['addr']
+            #tunnel_info.tunnel_mode = nat_utils.NAT_TYPES[self.nat_type]
+            #tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
+            if self.external_ip is not None:
+                tunnel_info.device_external_ip = self.external_ip
+                tunnel_info.device_external_port = self.external_port
+            # Send the registration request
+            response = stub.UpdateDeviceRegistration(request)
+            if response.status == status_codes_pb2.STATUS_OK:
+                print('UPDATED\n\n\n\n')
+                # Device authenticated
+                #configuration = response.device_configuration
+                tunnel_info = response.tunnel_info
+                #logging.info('Device authenticated')
+                #logging.info('Configuration received: %s' % configuration)
+                # Process the configuration received
+                #self.process_configuration(configuration)
+                # Update the tunnel
+                #self.tunnel_mode.update_tunnel_device_endpoint(tunnel_info)
+                self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+                # Get the controller address
+                #controller_ip = self.tunnel_mode.get_controller_ip(self.device_id)
+                #print('\n\ncontroller ip', controller_ip)
+                # Send a keep-alive messages to keep the tunnel opened, if required
+                #if self.tunnel_mode.require_keep_alive_messages:
+                #    #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
+                #    Thread(target=utils.start_keep_alive_icmp, args=(controller_ip, 3, 3, self.update_device_registration), daemon=False).start()
+                # Return the configuration
+                return
+            elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+                # Authentication failed
+                logging.warning('Authentication failed')
+                return
+            else:
+                # Unknown status code
+                logging.warning('Unknown status code: %s' % response.status)
+                return
 
     def run(self):
         # Initialize tunnel state
-        tunnel_state = utils.TunnelState()
+        tunnel_state = utils.TunnelState(server_ip)
         # Run the stun test to discover the NAT type
         #nat_type, external_ip, external_port = nat_utils.run_stun(STUN_SOURCE_IP,
         #                                                          STUN_SOURCE_PORT,

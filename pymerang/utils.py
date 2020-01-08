@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 
 from ipaddress import ip_address, IPv6Network, IPv4Network
+from ipaddress import IPv4Interface, IPv6Interface, AddressValueError
 from urllib.parse import urlparse
 from netifaces import AF_INET, AF_INET6, AF_LINK, AF_PACKET, AF_BRIDGE
 import netifaces as ni
+import socket
+import time
+from ping3 import ping
 
 #from pymerang import nat_utils
 from nat_utils.nat_discovery_server import NAT_TYPES
@@ -32,6 +36,44 @@ def parse_ip_port(netloc):
         port = parsed.port
     return ip, port
 '''
+
+
+# Utiliy function to check if the IP
+# is a valid IPv6 address
+def validate_ipv6_address(ip):
+    if ip is None:
+        return False
+    try:
+        IPv6Interface(ip)
+        return True
+    except AddressValueError:
+        return False
+
+
+# Utiliy function to check if the IP
+# is a valid IPv4 address
+def validate_ipv4_address(ip):
+    if ip is None:
+        return False
+    try:
+        IPv4Interface(ip)
+        return True
+    except AddressValueError:
+        return False
+
+
+# Utiliy function to get the IP address family
+def getAddressFamily(ip):
+    if validate_ipv6_address(ip):
+        # IPv6 address
+        return socket.AF_INET6
+    elif validate_ipv4_address(ip):
+        # IPv4 address
+        return socket.AF_INET
+    else:
+        # Invalid address
+        return None
+
 
 def get_local_interfaces():
     interfaces = dict()
@@ -81,21 +123,34 @@ def send_ping(dst_ip):
 
 def send_keep_alive_udp(dst_ip, dst_port):
     # Create the socket
-    with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as sock:
+    family = getAddressFamily(dst_ip)
+    with socket.socket(family, socket.SOCK_DGRAM) as sock:
+        #print('Sending message to %s on port %s' % (dst_ip, dst_port))
         # Send an empty UDP message
-        sock.sendto('', (dst_ip, dst_port))
+        sock.sendto(b'', (dst_ip, dst_port))
 
 
-def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0):
+def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
+    print('ICMP PING\n\n\n')
+    print(dst_ip)
+    print(interval)
+    print(max_lost)
+    print(callback)
     current_lost = 0
     while True:
-          # Returns delay in seconds.
+        # Returns delay in seconds.
         delay = send_ping(dst_ip)
         if max_lost > 0:
             if not delay:
+                print('failure')
                 current_lost += 1
                 if current_lost >= max_lost:
-                    return
+                    if callback is not None:
+                        #logging.info('Connection lost')
+                        print('Connection lost')
+                        print('callback')
+                        callback()
+                    current_lost = 0
             else:
                 current_lost = 0
         time.sleep(interval)
@@ -103,7 +158,7 @@ def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0):
 
 def start_keep_alive_udp(dst_ip, dst_port, interval=30):
     while True:
-        send_keep_alive_udp
+        send_keep_alive_udp(dst_ip, dst_port)
         time.sleep(interval)
 
 
@@ -157,11 +212,13 @@ def parse_ip_port(netloc):
 
 class TunnelState:
 
-    def __init__(self):
+    def __init__(self, server_ip):
         self.tunnel_modes = dict()
         self.nat_to_tunnel_modes = dict()
         for nat_type in NAT_TYPES:
             self.nat_to_tunnel_modes[nat_type] = dict()
+        # Save server IP
+        self.server_ip = server_ip
         # Initialize network allocator
         self.ipv6_net_allocator = IPv6NetAllocator()
         self.ipv4_net_allocator = IPv4NetAllocator()
@@ -192,8 +249,8 @@ class TunnelState:
     def init_nat_to_tunnel_modes(self):
         self.register_tunnel_mode(no_tunnel.NoTunnel('no_tunnel', 0))
         self.register_tunnel_mode(vxlan_utils.TunnelVXLAN(
-            'vxlan', 5, self.ipv6_net_allocator, self.ipv4_net_allocator)
+            'vxlan', 5, self.server_ip, self.ipv6_net_allocator, self.ipv4_net_allocator)
         )
         self.register_tunnel_mode(
-            etherws_utils.TunnelEtherWs('etherws', 10, self.ipv6_net_allocator, self.ipv4_net_allocator)
+            etherws_utils.TunnelEtherWs('etherws', 10, self.server_ip, self.ipv6_net_allocator, self.ipv4_net_allocator)
         )
