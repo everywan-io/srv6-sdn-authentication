@@ -74,9 +74,11 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                     'addr': ipv6_addr.addr.split('%')[0]
                 })
             interfaces[ifname] = {
+                'name': ifname,
                 'mac_addrs': mac_addrs,
                 'ipv4_addrs': ipv4_addrs,
                 'ipv6_addrs': ipv6_addrs,
+                'type': utils.InterfaceType.UNKNOWN,
             }
         tunnel_info = request.tunnel_info
         # Register the device
@@ -100,9 +102,9 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
 
 class PymerangController:
 
-    def __init__(self, ip='::1', port=50051, devices=None):
-        self.ip = ip
-        self.port = port
+    def __init__(self, server_ip='::1', server_port=50051, devices=None):
+        self.server_ip = server_ip
+        self.server_port = server_port
         if devices is not None:
             self.devices = devices
         else:
@@ -132,6 +134,39 @@ class PymerangController:
         self.devices[device_id]['mgmtip'] = mgmtip
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
+        self.devices[device_id]['status'] = utils.DeviceStatus.CONNECTED
+        self.tunnel_modes[device_id] = tunnel_mode
+        # Send a keep-alive messages to keep the tunnel opened, if required
+        if tunnel_mode.require_keep_alive_messages:
+            #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
+            Thread(target=utils.start_keep_alive_icmp, args=(mgmtip, 3, 3), daemon=False).start()
+        logging.info('New device registered: %s' % self.devices[device_id])
+        # Return the configuration
+        return status_codes_pb2.STATUS_OK, tunnel_info
+
+    def update_device_registration(self, device_id, tunnel_info):
+        # Device authentication
+        #authenticated = self.authenticate_device(device_id, auth_data)
+        #if not authenticated:
+        #    return status_codes_pb2.STATUS_UNAUTHORIZED, None
+        # Get the tunnel mode required by the device
+        #tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
+        #tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+        # Create the tunnel
+        tunnel_mode = self.tunnel_modes[device_id]
+        tunnel_mode.update_tunnel_controller_endpoint(device_id, tunnel_info)
+        # Register the device
+        #self.devices[device_id] = dict()
+        #self.devices[device_id]['features'] = features
+        #self.devices[device_id]['interfaces'] = interfaces
+        #print('TUNNEL DeV IP', tunnel_mode.device_ip)
+        #if tunnel_mode.get_device_ip(device_id) is not None:
+        #    mgmtip = tunnel_mode.get_device_ip(device_id)
+        #    print('mgmtmgmtmgmtmgmtm', mgmtip)
+        #self.devices[device_id]['mgmtip'] = mgmtip
+        #self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
+        #self.devices[device_id]['tunnel_info'] = tunnel_info
+        #self.tunnel_modes[device_id] = tunnel_mode
         logging.info('New device registered: %s' % self.devices[device_id])
         # Return the configuration
         return status_codes_pb2.STATUS_OK, tunnel_info

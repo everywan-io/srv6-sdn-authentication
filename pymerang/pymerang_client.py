@@ -132,6 +132,10 @@ class PymerangDevice:
             self.process_configuration(configuration)
             # Create the tunnel
             self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+            # Get the controller address
+            controller_ip = self.tunnel_mode.get_controller_ip(self.device_id)
+            if controller_ip is None:
+                controller_ip = self.server_ip
             # Send a keep-alive messages to keep the tunnel opened, if required
             if self.tunnel_mode.require_keep_alive_messages:
                 Thread(target=utils.send_keep_alive_udp, daemon=True)
