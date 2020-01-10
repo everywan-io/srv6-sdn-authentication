@@ -33,5 +33,14 @@ setup(
     long_description_content_type='text/markdown',  # Optional (see note above)
     url='',  # Optional
     packages=['pymerang'],  # Required
-    install_requires=['setuptools']
+    install_requires=[
+        'setuptools',
+        'netifaces>=0.10.9',
+        'grpcio>=1.19.0',
+        'grpcio-tools>=1.19.0',
+        'python-pytun>=2.3.0',
+        'tornado>=6.0.3',
+        'websocket-client>=0.56.0',
+        'ping3>=2.4.0'
+    ]
 )

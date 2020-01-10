@@ -10,6 +10,8 @@ import "pymerang/status_codes.proto";
 service Pymerang {
   // Register a device
   rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Update device registration
+  rpc UpdateDeviceRegistration(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
 
 /* Message representing a feature supported by a device */
@@ -45,6 +47,7 @@ message TunnelInfo {
     uint32 vtep_mask = 5;
     string device_external_ip = 6;
     uint32 device_external_port = 7;
+    uint32 vni = 8;
 }
 
 /* MAC address */

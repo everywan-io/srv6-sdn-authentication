@@ -2,12 +2,15 @@
 
 from concurrent import futures
 from multiprocessing import Process
+from threading import Thread
 from ipaddress import IPv6Network, IPv4Network
+from socket import AF_INET, AF_INET6
 import logging
 import time
 import inspect
 
 from pymerang import utils
+from pymerang import tunnel_utils
 #from pymerang import nat_utils
 
 import grpc
@@ -17,9 +20,9 @@ from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
 
 # Loopback IP address of the controller
-CONTROLLER_IP = '::'
+DEFAULT_PYMERANG_SERVER_IP = '::'
 # Port of the gRPC server executing on the controller
-CONTROLLER_GRPC_PORT = 50061
+DEFAULT_PYMERANG_SERVER_PORT = 50061
 # IP address of the NAT discovery
 #NAT_DISCOVERY_SERVER_HOST = '::1'
 # Port number of the NAT discovery
@@ -83,6 +86,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         tunnel_info = request.tunnel_info
         # Register the device
         reply = pymerang_pb2.RegisterDeviceReply()
+        reply.tunnel_info.device_id = tunnel_info.device_id
         reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = tunnel_info.device_external_port
@@ -99,6 +103,72 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         #reply.device_configuration =       # TODO
         return reply
 
+    def UpdateDeviceRegistration(self, request, context):
+        # Extract the parameters from the registration request
+        logging.debug('Update device registration: %s' % request)
+        #mgmtip = context.peer()
+        #mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
+        device_id = request.device.id
+        #features = dict()
+        #for feature in request.device.features:
+        #    name = feature.name
+        #    port = feature.port
+        #    features[name] = {name: name, port: port}
+        #auth_data = request.auth_data
+        #interfaces = dict()
+        #for interface in request.interfaces:
+        #    ifname = interface.name
+        #    mac_addrs = list()
+        #    ipv4_addrs = list()
+        #    ipv6_addrs = list()
+        #    for mac_addr in interface.mac_addrs:
+        #        mac_addrs.append({
+        #            'broadcast': mac_addr.broadcast,
+        #            'addr': mac_addr.addr
+        #        })
+        #    for ipv4_addr in interface.ipv4_addrs:
+        #        prefix = ipv4_addr.netmask.split('/')
+        #        if len(prefix) > 1:
+        #            ipv4_addr.netmask = prefix[1]
+        #        ipv4_addrs.append({
+        #            'broadcast': ipv4_addr.broadcast,
+        #            'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
+        #            'addr': ipv4_addr.addr
+        #        })
+        #    for ipv6_addr in interface.ipv6_addrs:
+        #        prefix = ipv6_addr.netmask.split('/')
+        #        if len(prefix) > 1:
+        #            ipv6_addr.netmask = prefix[1]
+        #        ipv6_addrs.append({
+        #            'broadcast': ipv6_addr.broadcast,
+        #            'netmask': ipv6_addr.netmask,
+        #            'addr': ipv6_addr.addr.split('%')[0]
+        #        })
+        #    interfaces[ifname] = {
+        #        'mac_addrs': mac_addrs,
+        #        'ipv4_addrs': ipv4_addrs,
+        #        'ipv6_addrs': ipv6_addrs,
+        #    }
+        tunnel_info = request.tunnel_info
+        # Register the device
+        reply = pymerang_pb2.RegisterDeviceReply()
+        reply.tunnel_info.device_id = tunnel_info.device_id
+        #reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
+        reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
+        reply.tunnel_info.device_external_port = tunnel_info.device_external_port
+        response, tunnel_info = self.controller.update_device_registration(
+            device_id, reply.tunnel_info
+        )
+        if response is not status_codes_pb2.STATUS_OK:
+            return (pymerang_pb2
+                    .RegisterDeviceReply(status=response))
+        # Generate the configuration for the device
+        #config = self.controller.devices[device_id]['device_configuration']
+        #config = self.controller.configurations[device_id]
+        reply.status = status_codes_pb2.STATUS_OK
+        #reply.device_configuration =       # TODO
+        return reply
+        
 
 class PymerangController:
 
@@ -111,6 +181,7 @@ class PymerangController:
             self.devices = dict()
         self.configurations = dict()
         self.tunnel_state = None
+        self.tunnel_modes = dict()
 
     def authenticate_device(self, device_id, auth_data):
         return True     # TODO
@@ -129,8 +200,10 @@ class PymerangController:
         self.devices[device_id] = dict()
         self.devices[device_id]['features'] = features
         self.devices[device_id]['interfaces'] = interfaces
+        print('TUNNEL DeV IP', tunnel_mode.device_ip)
         if tunnel_mode.get_device_ip(device_id) is not None:
             mgmtip = tunnel_mode.get_device_ip(device_id)
+            print('mgmtmgmtmgmtmgmtm', mgmtip)
         self.devices[device_id]['mgmtip'] = mgmtip
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
@@ -175,8 +248,9 @@ class PymerangController:
         # Get the tunnel mode
         tunnel_mode = self.devices[device_id]['tunnel_mode']
         tunnel_info = self.devices[device_id]['tunnel_info']
+        del self.tunnel_modes[device_id]
         # Destroy the tunnel
-        tunnel_mode.destroy_tunnel_controller_endpoing(tunnel_info)
+        tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
 
     def load_device_config(self):
         #self.devices[0] = dict()
@@ -189,13 +263,23 @@ class PymerangController:
 
     def serve(self):
         # Initialize tunnel state
-        self.tunnel_state = utils.TunnelState()
+        self.tunnel_state = utils.TunnelState(self.server_ip)
         # Start gRPC server
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         pymerang_pb2_grpc.add_PymerangServicer_to_server(
             PymerangServicer(self), server
         )
-        server_address = '[%s]:%s' % (CONTROLLER_IP, CONTROLLER_GRPC_PORT)
+        print(self.server_ip)
+        if tunnel_utils.getAddressFamily(self.server_ip) == AF_INET6:
+            print('IPv6')
+            server_address = '[%s]:%s' % (self.server_ip, self.server_port)
+        elif tunnel_utils.getAddressFamily(self.server_ip) == AF_INET:
+            print('IPv4')
+            server_address = '%s:%s' % (self.server_ip, self.server_port)
+        else:
+            logging.error('Invalid server address %s' % self.server_ip)
+            return
+        #server_address = '[%s]:%s' % ('::', self.server_port)
         logging.info('Server started: listening on %s' % server_address)
         server.add_insecure_port(server_address)
         server.start()
@@ -204,14 +288,50 @@ class PymerangController:
             time.sleep(10)
 
 
+# Parse options
+def parse_arguments():
+    # Get parser
+    parser = ArgumentParser(
+        description='pymerang server'
+    )
+    parser.add_argument(
+        '-d', '--debug', action='store_true', help='Activate debug logs'
+    )
+    parser.add_argument(
+        '-s', '--secure', action='store_true', help='Activate secure mode'
+    )
+    parser.add_argument(
+        '-i', '--server-ip', dest='server_ip',
+        default=DEFAULT_PYMERANG_SERVER_IP, help='Server IP address'
+    )
+    parser.add_argument(
+        '-p', '--server-port', dest='server_port',
+        default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
+    )
+    # Parse input parameters
+    args = parser.parse_args()
+    # Return the arguments
+    return args
+
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    #p = Process(target=nat_utils.run_nat_discovery_server,
-    #            args=(NAT_DISCOVERY_SERVER_HOST, NAT_DISCOVERY_SERVER_PORT))
-    #p.daemon = True
-    #p.start()
+    args = parse_arguments()
+    # Setup properly the logger
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    # Setup properly the secure mode
+    if args.secure:
+        secure = True
+    else:
+        secure = False
+    # Server IP
+    server_ip = args.server_ip
+    # Server port
+    server_port = args.server_port
     # Devices
     devices = dict()
-    controller = PymerangController(CONTROLLER_IP, CONTROLLER_GRPC_PORT, devices)
+    # Start server
+    controller = PymerangController(server_ip, server_port, devices)
     controller.load_device_config()
     controller.serve()
