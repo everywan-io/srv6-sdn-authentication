@@ -81,6 +81,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 'mac_addrs': mac_addrs,
                 'ipv4_addrs': ipv4_addrs,
                 'ipv6_addrs': ipv6_addrs,
+                'ipv4_subnets': list(),
+                'ipv6_subnets': list(),
                 'type': utils.InterfaceType.UNKNOWN,
             }
         tunnel_info = request.tunnel_info
