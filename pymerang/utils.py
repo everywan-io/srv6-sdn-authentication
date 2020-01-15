@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import pynat
 from ipaddress import ip_address, IPv6Network, IPv4Network
 from ipaddress import IPv4Interface, IPv6Interface, AddressValueError
 from urllib.parse import urlparse
@@ -10,7 +11,7 @@ import time
 from ping3 import ping
 
 #from pymerang import nat_utils
-from nat_utils.nat_discovery_server import NAT_TYPES
+#from nat_utils.nat_discovery_server import NAT_TYPES
 from pymerang import no_tunnel
 from pymerang import vxlan_utils
 from pymerang import etherws_utils
@@ -36,6 +37,16 @@ def parse_ip_port(netloc):
         port = parsed.port
     return ip, port
 '''
+
+NAT_TYPES = [
+    pynat.BLOCKED,
+    pynat.OPEN,
+    pynat.FULL_CONE,
+    pynat.RESTRICTED_CONE,
+    pynat.RESTRICTED_PORT,
+    pynat.SYMMETRIC,
+    pynat.UDP_FIREWALL
+]
 
 
 class InterfaceType:
@@ -240,7 +251,7 @@ class TunnelState:
     def select_tunnel_mode(self, nat_type):
         available_modes = sorted(self.nat_to_tunnel_modes[nat_type])
         if len(available_modes) == 0:
-            pass # TODO
+            return None # TODO
         return self.nat_to_tunnel_modes[nat_type][available_modes[0]]
 
     def register_tunnel_mode(self, tunnel_mode):

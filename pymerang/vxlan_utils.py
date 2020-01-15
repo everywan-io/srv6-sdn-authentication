@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import pynat
 from ipaddress import IPv4Network, IPv6Network
 from pyroute2 import IPRoute
 
@@ -135,7 +136,13 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                                nat_utils.NAT_TYPE['RestricPortNAT'],
                                nat_utils.NAT_TYPE['SymmetricNAT']]
         '''
-        supported_nat_types = ['OpenInternet', 'NAT']
+        #supported_nat_types = ['OpenInternet', 'NAT']
+        supported_nat_types = [
+            pynat.OPEN,
+            pynat.FULL_CONE,
+            pynat.RESTRICTED_CONE,
+            pynat.RESTRICTED_PORT
+        ]
         # Create tunnel mode
         super().__init__(name, require_keep_alive_messages,
                          supported_nat_types, priority, server_ip, ipv6_net_allocator, ipv4_net_allocator)

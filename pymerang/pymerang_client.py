@@ -2,6 +2,8 @@
 
 from __future__ import print_function
 from argparse import ArgumentParser
+#import stun
+import pynat
 #from ping3 import ping, verbose_ping
 import logging
 import grpc
@@ -40,7 +42,7 @@ DEFAULT_PYMERANG_CLIENT_IP = 'fcff:1::1'
 #STUN_SERVER_PORT = 3478
 # Souce IP address of the NAT discovery
 #DEFAULT_NAT_DISCOVERY_CLIENT_IP = '2000:0:0:1::1'
-DEFAULT_NAT_DISCOVERY_CLIENT_IP = ''
+DEFAULT_NAT_DISCOVERY_CLIENT_IP = '0.0.0.0'
 #DEFAULT_NAT_DISCOVERY_CLIENT_IPV6 = '::'
 #DEFAULT_NAT_DISCOVERY_CLIENT_IPV4 = '0.0.0.0'
 # Source port of the NAT discovery
@@ -48,16 +50,19 @@ DEFAULT_NAT_DISCOVERY_CLIENT_PORT = 4789
 # IP address of the NAT discovery
 DEFAULT_NAT_DISCOVERY_SERVER_IP = '2000::1'
 # Port number of the NAT discovery
-DEFAULT_NAT_DISCOVERY_SERVER_PORT = 50081
+#DEFAULT_NAT_DISCOVERY_SERVER_PORT = 50081
+DEFAULT_NAT_DISCOVERY_SERVER_PORT = 3478
 # Config file
 DEFAULT_CONFIG_FILE = '/tmp/config.json'
+# Default interval between two keep alive messages
+DEFAULT_KEEP_ALIVE_INTERVAL = 30
 
 
 class PymerangDevice:
 
     def __init__(self, server_ip, server_port, nat_discovery_server_ip,
             nat_discovery_server_port, nat_discovery_client_ip,
-            nat_discovery_client_port, config_file):
+            nat_discovery_client_port, config_file, keep_alive_interval=30):
         self.server_ip = server_ip
         self.server_port = server_port
         self.nat_discovery_server_ip = nat_discovery_server_ip
@@ -74,6 +79,7 @@ class PymerangDevice:
             config = json.load(json_file)
         self.device_id = config['id']
         self.features = config['features']
+        self.self.keep_alive_interval = keep_alive_interval
 
     def process_configuration(self, configuration):
         pass
@@ -142,7 +148,7 @@ class PymerangDevice:
             # Send a keep-alive messages to keep the tunnel opened, if required
             if self.tunnel_mode.require_keep_alive_messages:
                 #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
-                Thread(target=utils.start_keep_alive_icmp, args=(controller_ip, 3, 3,  self.update_device_registration), daemon=False).start()
+                Thread(target=utils.start_keep_alive_icmp, args=(controller_ip, self.keep_alive_interval, 3,  self.update_device_registration), daemon=False).start()
             # Return the configuration
             return configuration
         elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
@@ -179,10 +185,14 @@ class PymerangDevice:
             tunnel_info.device_id = self.device_id
             self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
             logging.info('Sending handshake')
-            nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
-                self.nat_discovery_client_ip, self.nat_discovery_client_port,
-                self.nat_discovery_server_ip, self.nat_discovery_server_port
-            )
+            #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(   # TODO stun?
+            #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
+            #    self.nat_discovery_server_ip, self.nat_discovery_server_port
+            #)
+            nat_type, external_ip, external_port = pynat.get_ip_info(self.nat_discovery_client_ip,
+                                                                     self.nat_discovery_client_port,
+                                                                     self.nat_discovery_server_ip,
+                                                                     self.nat_discovery_server_port)
             if nat_type != self.nat_type:
                 print(nat_type)
                 logging.error('Error: NAT type changed')
@@ -266,14 +276,16 @@ class PymerangDevice:
         # Initialize tunnel state
         tunnel_state = utils.TunnelState(server_ip)
         # Run the stun test to discover the NAT type
-        #nat_type, external_ip, external_port = nat_utils.run_stun(STUN_SOURCE_IP,
-        #                                                          STUN_SOURCE_PORT,
-        #                                                          STUN_SERVER_HOST,
-        #                                                          STUN_SERVER_PORT)
-        nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
-            self.nat_discovery_client_ip, self.nat_discovery_client_port,
-            self.nat_discovery_server_ip, self.nat_discovery_server_port
-        )
+        import time
+        #time.sleep(5)
+        nat_type, external_ip, external_port = pynat.get_ip_info(self.nat_discovery_client_ip,
+                                                                 self.nat_discovery_client_port,
+                                                                 self.nat_discovery_server_ip,
+                                                                 self.nat_discovery_server_port)
+        #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+        #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
+        #    self.nat_discovery_server_ip, self.nat_discovery_server_port
+        #)
         self.nat_type = nat_type
         self.external_ip = external_ip
         self.external_port = external_port
@@ -284,6 +296,9 @@ class PymerangDevice:
         logging.info('NAT detected: %s' % nat_type)
         # Get the best tunnel mode working with the NAT type
         self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
+        if self.tunnel_mode is None:
+            print('No tunnel mode supporting the NAT type')
+            exit(-1)
         logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
         # Establish a gRPC connection to the controller
         if nat_utils.getAddressFamily(self.server_ip) == AF_INET6:
@@ -326,7 +341,7 @@ def parse_arguments():
         default=DEFAULT_NAT_DISCOVERY_SERVER_IP, help='NAT discovery server IP'
     )
     parser.add_argument(
-        '-m', '--nat-discovery-server-port', dest='nat_discovery_server_port',
+        '-m', '--nat-discovery-server-port', type=int, dest='nat_discovery_server_port',
         default=DEFAULT_NAT_DISCOVERY_SERVER_PORT, help='NAT discovery server port'
     )
     parser.add_argument(
@@ -334,12 +349,16 @@ def parse_arguments():
         default=DEFAULT_NAT_DISCOVERY_CLIENT_IP, help='NAT discovery client IP'
     )
     parser.add_argument(
-        '-o', '--nat-discovery-client-port', dest='nat_discovery_client_port',
+        '-o', '--nat-discovery-client-port', type=int, dest='nat_discovery_client_port',
         default=DEFAULT_NAT_DISCOVERY_CLIENT_PORT, help='NAT discovery client port'
     )
     parser.add_argument(
         '-c', '--config-file', dest='config_file',
         default=DEFAULT_CONFIG_FILE, help='Config file'
+    )
+    parser.add_argument(
+        '-k', '--keep-alive-interval', dest='keep_alive_interval',
+        default=DEFAULT_KEEP_ALIVE_INTERVAL, help='Interval between two consecutive keep alive'
     )
     # Parse input parameters
     args = parser.parse_args()
@@ -372,8 +391,10 @@ if __name__ == '__main__':
     nat_discovery_client_port = args.nat_discovery_client_port
     # Config file
     config_file = args.config_file
+    # Interval between two consecutive keep alive messages
+    keep_alive_interval = args.keep_alive_interval
     # Start client
     client = PymerangDevice(server_ip, server_port, nat_discovery_server_ip,
         nat_discovery_server_port, nat_discovery_client_ip,
-        nat_discovery_client_port, config_file)
+        nat_discovery_client_port, config_file, keep_alive_interval)
     client.run()

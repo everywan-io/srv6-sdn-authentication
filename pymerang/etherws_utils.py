@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import pynat
 from ipaddress import IPv6Network, IPv4Network
 from pyroute2 import IPRoute
 from pymerang import etherws
@@ -109,8 +110,8 @@ def del_etherws_port(portnum):
     etherws._start_ctl(ctl_delport_args)
 
 
-def create_etherws_websocket(device, addr):
-    ctl_addport_client_args = CtlAddPortTapArgs()
+def create_etherws_websocket(addr):
+    ctl_addport_client_args = CtlAddPortClientArgs()
     ctl_addport_client_args.target = 'ws://[%s]' % addr
     etherws._start_ctl(ctl_addport_client_args)
 
@@ -136,7 +137,7 @@ def del_address(device, address, mask):
 class TunnelEtherWs(tunnel_utils.TunnelMode):
 
     def __init__(self, name, priority, server_ip, ipv6_net_allocator, ipv4_net_allocator):
-        require_keep_alive_messages = False
+        require_keep_alive_messages = True
         '''
         supported_nat_types = [nat_utils.NAT_TYPE['Blocked'],
                                nat_utils.NAT_TYPE['OpenInternet'],
@@ -146,7 +147,15 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                                nat_utils.NAT_TYPE['RestricPortNAT'],
                                nat_utils.NAT_TYPE['SymmetricNAT']]
         '''
-        supported_nat_types = ['OpenInternet', 'NAT', 'Blocked']
+        #supported_nat_types = ['OpenInternet', 'NAT', 'Blocked']
+        supported_nat_types = [
+            pynat.OPEN,
+            pynat.FULL_CONE,
+            pynat.RESTRICTED_CONE,
+            pynat.RESTRICTED_PORT,
+            pynat.SYMMETRIC,
+            pynat.UDP_FIREWALL
+        ]
         # Create tunnel mode
         super().__init__(name, require_keep_alive_messages,
                          supported_nat_types, priority, server_ip, ipv6_net_allocator, ipv4_net_allocator)
@@ -158,13 +167,17 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         controller_vtep_ip = tunnel_info.controller_vtep_ip
         device_vtep_ip = tunnel_info.device_vtep_ip
         vtep_mask = tunnel_info.vtep_mask
+        
+        self.controller_ip[device_id] = controller_vtep_ip
+        # Device name
+        device_name = '%s-%s' % (self.name, device_id[:3])
         # Create the EtherWs TAP interface
-        create_etherws_tap(device='%s-%s' % (self.name, device_id))
+        create_etherws_tap(device=device_name)
         # Add the private address
-        add_address(device='%s-%s' % (self.name, device_id),
+        add_address(device=device_name,
                     address=device_vtep_ip, mask=vtep_mask)
         # Create the EtherWs websocket interface
-        create_etherws_websocket(device=self.server_ip)
+        create_etherws_websocket(addr=self.server_ip)
 
     def create_tunnel_controller_endpoint(self, tunnel_info):
         print('\n\n\nTUNNEL INFO', tunnel_info)
@@ -174,29 +187,31 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == AF_INET6:
             net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
             net = IPv6Network(net)
-            controller_vtep_ip = net[0].__str__()
-            device_vtep_ip = net[1].__str__()
+            controller_vtep_ip = net[1].__str__()
+            device_vtep_ip = net[2].__str__()
             vtep_mask = net.prefixlen
         else:       # TODO handle IPv6
             #elif tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == AF_INET:
             net = self.ipv4_net_allocator.nextNet()   # Change to make dependant from the device ID?
             net = IPv4Network(net)
-            controller_vtep_ip = net[0].__str__()
-            device_vtep_ip = net[1].__str__()
+            controller_vtep_ip = net[1].__str__()
+            device_vtep_ip = net[2].__str__()
             vtep_mask = net.prefixlen
         #else:
         #    print('Invalid family address: %s' % tunnel_info.device_external_ip)
         #    exit(-1)
         self.device_ip[device_id] = device_vtep_ip
+        # Device name
+        device_name = '%s-%s' % (self.name, device_id[:3])
         # Create the EtherWs TAP interface
-        create_etherws_tap(device='%s-%s' % (self.name, device_id))
+        create_etherws_tap(device=device_name)
         # Add the private address
-        add_address(device='%s-%s' % (self.name, device_id),
-                    address=device_vtep_ip, mask=vtep_mask)
+        add_address(device=device_name,
+                    address=controller_vtep_ip, mask=vtep_mask)
         # Update and return the tunnel info
-        tunnel_info.controller_vtep_ip
+        tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip
-        tunnel_info.vtep_mask
+        tunnel_info.vtep_mask = vtep_mask
         return tunnel_info
 
     def destroy_tunnel_device_endpoint(self, tunnel_info):

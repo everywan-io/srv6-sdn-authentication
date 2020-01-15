@@ -27,6 +27,8 @@ DEFAULT_PYMERANG_SERVER_PORT = 50061
 #NAT_DISCOVERY_SERVER_HOST = '::1'
 # Port number of the NAT discovery
 #NAT_DISCOVERY_SERVER_PORT = 50081
+# Default interval between two keep alive messages
+DEFAULT_KEEP_ALIVE_INTERVAL = 30
 
 
 class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
@@ -174,7 +176,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
 
 class PymerangController:
 
-    def __init__(self, server_ip='::1', server_port=50051, devices=None):
+    def __init__(self, server_ip='::1', server_port=50051, devices=None, keep_alive_interval=30):
         self.server_ip = server_ip
         self.server_port = server_port
         if devices is not None:
@@ -184,6 +186,7 @@ class PymerangController:
         self.configurations = dict()
         self.tunnel_state = None
         self.tunnel_modes = dict()
+        self.keep_alive_interval = keep_alive_interval
 
     def authenticate_device(self, device_id, auth_data):
         return True     # TODO
@@ -214,7 +217,7 @@ class PymerangController:
         # Send a keep-alive messages to keep the tunnel opened, if required
         if tunnel_mode.require_keep_alive_messages:
             #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
-            Thread(target=utils.start_keep_alive_icmp, args=(mgmtip, 3, 3), daemon=False).start()
+            Thread(target=utils.start_keep_alive_icmp, args=(mgmtip, self.keep_alive_interval, 3), daemon=False).start()
         logging.info('New device registered: %s' % self.devices[device_id])
         # Return the configuration
         return status_codes_pb2.STATUS_OK, tunnel_info
@@ -310,6 +313,10 @@ def parse_arguments():
         '-p', '--server-port', dest='server_port',
         default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
     )
+    parser.add_argument(
+        '-k', '--keep-alive-interval', dest='kee_alive_interval',
+        default=DEFAULT_KEEP_ALIVE_INTERVAL, help='Interval between two consecutive keep alive'
+    )
     # Parse input parameters
     args = parser.parse_args()
     # Return the arguments
@@ -333,7 +340,9 @@ if __name__ == '__main__':
     server_port = args.server_port
     # Devices
     devices = dict()
+    # Keep alive interval
+    keep_alive_interval = args.keep_alive_interval
     # Start server
-    controller = PymerangController(server_ip, server_port, devices)
+    controller = PymerangController(server_ip, server_port, devices, keep_alive_interval)
     controller.load_device_config()
     controller.serve()
