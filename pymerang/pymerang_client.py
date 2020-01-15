@@ -79,7 +79,7 @@ class PymerangDevice:
             config = json.load(json_file)
         self.device_id = config['id']
         self.features = config['features']
-        self.self.keep_alive_interval = keep_alive_interval
+        self.keep_alive_interval = keep_alive_interval
 
     def process_configuration(self, configuration):
         pass
