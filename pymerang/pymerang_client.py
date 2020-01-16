@@ -85,6 +85,32 @@ class PymerangDevice:
         pass
 
     def register_device(self, stub):
+        # Initialize tunnel state
+        tunnel_state = utils.TunnelState(server_ip)
+        # Run the stun test to discover the NAT type
+        nat_type, external_ip, external_port = pynat.get_ip_info(self.nat_discovery_client_ip,
+                                                                 self.nat_discovery_client_port,
+                                                                 self.nat_discovery_server_ip,
+                                                                 self.nat_discovery_server_port)
+        #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+        #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
+        #    self.nat_discovery_server_ip, self.nat_discovery_server_port
+        #)
+        self.nat_type = nat_type
+        self.external_ip = external_ip
+        self.external_port = external_port
+        logging.info('Client started')
+        if nat_type is None:
+            logging.error('Error in STUN client')
+        #logging.info('NAT detected: %s' % nat_utils.NAT_DESC[nat_type])
+        logging.info('NAT detected: %s' % nat_type)
+        # Get the best tunnel mode working with the NAT type
+        self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
+        if self.tunnel_mode is None:
+            print('No tunnel mode supporting the NAT type')
+            exit(-1)
+        logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
+        
         # Prepare the registration message
         request = pymerang_pb2.RegisterDeviceRequest()
         request.device.id = self.device_id
@@ -113,6 +139,19 @@ class PymerangDevice:
                     ipv4_addr.netmask = addr['netmask']
                 if addr.get('addr') is not None:
                     ipv4_addr.addr = addr['addr']
+                if ifname != 'lo':
+                    print('\n\n\naddress for nat testing', addr['addr'])
+                    # Run the stun test to discover the NAT type
+                    nat_type, external_ip, external_port = pynat.get_ip_info(addr['addr'],
+                                                                            self.nat_discovery_client_port,
+                                                                            self.nat_discovery_server_ip,
+                                                                            self.nat_discovery_server_port)
+                    #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+                    #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
+                    #    self.nat_discovery_server_ip, self.nat_discovery_server_port
+                    #)
+                    if external_ip is not None:
+                        ipv4_addr.ext_addr = external_ip
             for addr in ifinfo['ipv6_addrs']:
                 ipv6_addr = interface.ipv6_addrs.add()
                 if addr.get('broadcast') is not None:
@@ -121,6 +160,22 @@ class PymerangDevice:
                     ipv6_addr.netmask = addr['netmask']
                 if addr.get('addr') is not None:
                     ipv6_addr.addr = addr['addr']
+                if ifname != 'lo':
+                    print('\n\n\naddress for nat testing', addr['addr'].split('%')[0])
+                    # Run the stun test to discover the NAT type
+                    try:
+                        nat_type, external_ip, external_port = pynat.get_ip_info(addr['addr'].split('%')[0],
+                                                                                self.nat_discovery_client_port,
+                                                                                self.nat_discovery_server_ip,
+                                                                                self.nat_discovery_server_port)
+                        #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
+                        #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
+                        #    self.nat_discovery_server_ip, self.nat_discovery_server_port
+                        #)
+                        if external_ip is not None:
+                            ipv6_addr.ext_addr = external_ip
+                    except OSError as e:
+                        print(e)
         tunnel_info = request.tunnel_info
         #tunnel_info.tunnel_mode = nat_utils.NAT_TYPES[self.nat_type]
         tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
@@ -273,33 +328,6 @@ class PymerangDevice:
                 return
 
     def run(self):
-        # Initialize tunnel state
-        tunnel_state = utils.TunnelState(server_ip)
-        # Run the stun test to discover the NAT type
-        import time
-        #time.sleep(5)
-        nat_type, external_ip, external_port = pynat.get_ip_info(self.nat_discovery_client_ip,
-                                                                 self.nat_discovery_client_port,
-                                                                 self.nat_discovery_server_ip,
-                                                                 self.nat_discovery_server_port)
-        #nat_type, external_ip, external_port = nat_discovery_client.run_nat_discovery_client(
-        #    self.nat_discovery_client_ip, self.nat_discovery_client_port,
-        #    self.nat_discovery_server_ip, self.nat_discovery_server_port
-        #)
-        self.nat_type = nat_type
-        self.external_ip = external_ip
-        self.external_port = external_port
-        logging.info('Client started')
-        if nat_type is None:
-            logging.error('Error in STUN client')
-        #logging.info('NAT detected: %s' % nat_utils.NAT_DESC[nat_type])
-        logging.info('NAT detected: %s' % nat_type)
-        # Get the best tunnel mode working with the NAT type
-        self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
-        if self.tunnel_mode is None:
-            print('No tunnel mode supporting the NAT type')
-            exit(-1)
-        logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
         # Establish a gRPC connection to the controller
         if nat_utils.getAddressFamily(self.server_ip) == AF_INET6:
             server_address = '[%s]:%s' % (self.server_ip, self.server_port)

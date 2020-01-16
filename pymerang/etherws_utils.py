@@ -208,6 +208,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # Add the private address
         add_address(device=device_name,
                     address=controller_vtep_ip, mask=vtep_mask)
+        self.external_ip[device_id] = tunnel_info.device_external_ip
         # Update and return the tunnel info
         tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip

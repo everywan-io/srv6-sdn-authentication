@@ -56,6 +56,7 @@ class TunnelMode:
         #self.controller_ip = None
         self.controller_ip = dict()
         self.vtep_mask = dict()
+        self.external_ip = dict()
 
     def create_tunnel_device_endpoint(self, tunnel_info):
         raise NotImplementedError
@@ -80,3 +81,6 @@ class TunnelMode:
 
     def get_controller_ip(self, device_id):
         return self.controller_ip.get(device_id)
+    
+    def get_external_ip(self, device_id, ifname):
+        return self.external_ip.get((device_id, ifname))

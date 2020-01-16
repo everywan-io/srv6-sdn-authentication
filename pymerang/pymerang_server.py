@@ -67,7 +67,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 ipv4_addrs.append({
                     'broadcast': ipv4_addr.broadcast,
                     'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
-                    'addr': ipv4_addr.addr
+                    'addr': ipv4_addr.addr,
+                    'ext_addr': ipv4_addr.ext_addr
                 })
             for ipv6_addr in interface.ipv6_addrs:
                 prefix = ipv6_addr.netmask.split('/')
@@ -76,7 +77,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 ipv6_addrs.append({
                     'broadcast': ipv6_addr.broadcast,
                     'netmask': ipv6_addr.netmask,
-                    'addr': ipv6_addr.addr.split('%')[0]
+                    'addr': ipv6_addr.addr.split('%')[0],
+                    'ext_addr': ipv6_addr.ext_addr
                 })
             interfaces[ifname] = {
                 'name': ifname,
@@ -205,10 +207,8 @@ class PymerangController:
         self.devices[device_id] = dict()
         self.devices[device_id]['features'] = features
         self.devices[device_id]['interfaces'] = interfaces
-        print('TUNNEL DeV IP', tunnel_mode.device_ip)
         if tunnel_mode.get_device_ip(device_id) is not None:
             mgmtip = tunnel_mode.get_device_ip(device_id)
-            print('mgmtmgmtmgmtmgmtm', mgmtip)
         self.devices[device_id]['mgmtip'] = mgmtip
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info

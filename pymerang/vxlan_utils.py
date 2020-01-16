@@ -233,8 +233,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # Add a private address to the interface
         add_address(device=vxlan_name, address=controller_vtep_ip,
                     mask=vtep_mask)
-        print('ext ip', device_external_ip)
-        print(device_vtep_ip)
+        self.external_ip[device_id] = device_external_ip
         # Route the packets sent to the device through the VTEP
         #add_route(dst=device_external_ip, gateway=device_vtep_ip,
         #          family=tunnel_utils.getAddressFamily(device_external_ip),
