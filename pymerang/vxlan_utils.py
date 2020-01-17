@@ -9,7 +9,7 @@ from pymerang import tunnel_utils
 import socket
 
 VXLAN_DSTPORT = 4789
-ENABLE_UDP_CSUM = False
+ENABLE_UDP_CSUM = True
 #VXLAN_SRCPORT_MIN = 49152
 #VXLAN_SRCPORT_MAX = 65535
 
