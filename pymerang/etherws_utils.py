@@ -117,6 +117,9 @@ def create_etherws_websocket(addr):
 
 
 def add_address(device, address, mask):
+    print(address)
+    print(mask)
+    print(device)
     # Get pyroute2 instance
     ip_route = IPRoute()
     # Get interface index
@@ -161,6 +164,9 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                          supported_nat_types, priority, server_ip, ipv6_net_allocator, ipv4_net_allocator)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
+        pass
+
+    def create_tunnel_device_endpoint_end(self, tunnel_info):
         # Extract the device ID
         device_id = tunnel_info.device_id
         # Extract the VTEP IPs and ports
@@ -209,6 +215,10 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         add_address(device=device_name,
                     address=controller_vtep_ip, mask=vtep_mask)
         self.external_ip[device_id] = tunnel_info.device_external_ip
+        print('testetstetetsyt')
+        print(device_vtep_ip)
+        print(controller_vtep_ip)
+        print(vtep_mask)
         # Update and return the tunnel info
         tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip

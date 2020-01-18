@@ -167,13 +167,15 @@ def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
             if not delay:
                 print('failure')
                 current_lost += 1
-                if current_lost >= max_lost:
-                    if callback is not None:
-                        #logging.info('Connection lost')
-                        print('Connection lost')
-                        print('callback')
-                        callback()
-                    current_lost = 0
+                if max_lost > 0:
+                    if current_lost >= max_lost:
+                        if callback is not None:
+                            #logging.info('Connection lost')
+                            print('Connection lost')
+                            print('callback')
+                            return callback()
+                        current_lost = 0
+                        return None
             else:
                 current_lost = 0
         time.sleep(interval)

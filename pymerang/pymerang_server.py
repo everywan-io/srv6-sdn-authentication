@@ -96,6 +96,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = tunnel_info.device_external_port
+        reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
         response, tunnel_info = self.controller.register_device(
             device_id, features, interfaces, mgmtip, auth_data, reply.tunnel_info
         )
@@ -112,8 +113,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
     def UpdateDeviceRegistration(self, request, context):
         # Extract the parameters from the registration request
         logging.debug('Update device registration: %s' % request)
-        #mgmtip = context.peer()
-        #mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
+        mgmtip = context.peer()
+        mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
         device_id = request.device.id
         #features = dict()
         #for feature in request.device.features:
@@ -121,49 +122,56 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         #    port = feature.port
         #    features[name] = {name: name, port: port}
         #auth_data = request.auth_data
-        #interfaces = dict()
-        #for interface in request.interfaces:
-        #    ifname = interface.name
-        #    mac_addrs = list()
-        #    ipv4_addrs = list()
-        #    ipv6_addrs = list()
-        #    for mac_addr in interface.mac_addrs:
-        #        mac_addrs.append({
-        #            'broadcast': mac_addr.broadcast,
-        #            'addr': mac_addr.addr
-        #        })
-        #    for ipv4_addr in interface.ipv4_addrs:
-        #        prefix = ipv4_addr.netmask.split('/')
-        #        if len(prefix) > 1:
-        #            ipv4_addr.netmask = prefix[1]
-        #        ipv4_addrs.append({
-        #            'broadcast': ipv4_addr.broadcast,
-        #            'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
-        #            'addr': ipv4_addr.addr
-        #        })
-        #    for ipv6_addr in interface.ipv6_addrs:
-        #        prefix = ipv6_addr.netmask.split('/')
-        #        if len(prefix) > 1:
-        #            ipv6_addr.netmask = prefix[1]
-        #        ipv6_addrs.append({
-        #            'broadcast': ipv6_addr.broadcast,
-        #            'netmask': ipv6_addr.netmask,
-        #            'addr': ipv6_addr.addr.split('%')[0]
-        #        })
-        #    interfaces[ifname] = {
-        #        'mac_addrs': mac_addrs,
-        #        'ipv4_addrs': ipv4_addrs,
-        #        'ipv6_addrs': ipv6_addrs,
-        #    }
+        interfaces = dict()
+        for interface in request.interfaces:
+            ifname = interface.name
+            mac_addrs = list()
+            ipv4_addrs = list()
+            ipv6_addrs = list()
+            for mac_addr in interface.mac_addrs:
+                mac_addrs.append({
+                    'broadcast': mac_addr.broadcast,
+                    'addr': mac_addr.addr
+                })
+            for ipv4_addr in interface.ipv4_addrs:
+                prefix = ipv4_addr.netmask.split('/')
+                if len(prefix) > 1:
+                    ipv4_addr.netmask = prefix[1]
+                ipv4_addrs.append({
+                    'broadcast': ipv4_addr.broadcast,
+                    'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
+                    'addr': ipv4_addr.addr,
+                    'ext_addr': ipv4_addr.ext_addr
+                })
+            for ipv6_addr in interface.ipv6_addrs:
+                prefix = ipv6_addr.netmask.split('/')
+                if len(prefix) > 1:
+                    ipv6_addr.netmask = prefix[1]
+                ipv6_addrs.append({
+                    'broadcast': ipv6_addr.broadcast,
+                    'netmask': ipv6_addr.netmask,
+                    'addr': ipv6_addr.addr.split('%')[0],
+                    'ext_addr': ipv6_addr.ext_addr
+                })
+            interfaces[ifname] = {
+                'name': ifname,
+                'mac_addrs': mac_addrs,
+                'ipv4_addrs': ipv4_addrs,
+                'ipv6_addrs': ipv6_addrs,
+                'ipv4_subnets': list(),
+                'ipv6_subnets': list(),
+                'type': utils.InterfaceType.UNKNOWN,
+            }
         tunnel_info = request.tunnel_info
         # Register the device
         reply = pymerang_pb2.RegisterDeviceReply()
         reply.tunnel_info.device_id = tunnel_info.device_id
-        #reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
+        reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = tunnel_info.device_external_port
+        reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
         response, tunnel_info = self.controller.update_device_registration(
-            device_id, reply.tunnel_info
+            device_id, None, interfaces, mgmtip, None, reply.tunnel_info
         )
         if response is not status_codes_pb2.STATUS_OK:
             return (pymerang_pb2
@@ -194,6 +202,8 @@ class PymerangController:
         return True     # TODO
 
     def register_device(self, device_id, features, interfaces, mgmtip, auth_data, tunnel_info):
+        if device_id in self.devices:
+            self.unregister_device(device_id, tunnel_info)
         # Device authentication
         authenticated = self.authenticate_device(device_id, auth_data)
         if not authenticated:
@@ -236,16 +246,16 @@ class PymerangController:
         # Register the device
         #self.devices[device_id] = dict()
         #self.devices[device_id]['features'] = features
-        #self.devices[device_id]['interfaces'] = interfaces
+        self.devices[device_id]['interfaces'] = interfaces
         #print('TUNNEL DeV IP', tunnel_mode.device_ip)
-        #if tunnel_mode.get_device_ip(device_id) is not None:
-        #    mgmtip = tunnel_mode.get_device_ip(device_id)
+        if tunnel_mode.get_device_ip(device_id) is not None:
+            mgmtip = tunnel_mode.get_device_ip(device_id)
         #    print('mgmtmgmtmgmtmgmtm', mgmtip)
-        #self.devices[device_id]['mgmtip'] = mgmtip
+        self.devices[device_id]['mgmtip'] = mgmtip
         #self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         #self.devices[device_id]['tunnel_info'] = tunnel_info
         #self.tunnel_modes[device_id] = tunnel_mode
-        logging.info('New device registered: %s' % self.devices[device_id])
+        logging.info('Updated device registration: %s' % self.devices[device_id])
         # Return the configuration
         return status_codes_pb2.STATUS_OK, tunnel_info
 

@@ -18,7 +18,19 @@ class NoTunnel(tunnel_utils.TunnelMode):
     def create_tunnel_device_endpoint(self, tunnel_info):
     	pass
 
+    def create_tunnel_device_endpoint_end(self, tunnel_info):
+    	pass
+
     def create_tunnel_controller_endpoint(self, tunnel_info):
+    	return tunnel_info
+
+    def update_tunnel_device_endpoint(self, tunnel_info):
+    	pass
+
+    def update_tunnel_device_endpoint_end(self, tunnel_info):
+    	pass
+
+    def update_tunnel_controller_endpoint(self, tunnel_info):
     	return tunnel_info
 
     def destroy_tunnel_device_endpoint(self, tunnel_info):

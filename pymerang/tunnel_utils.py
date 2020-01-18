@@ -61,6 +61,9 @@ class TunnelMode:
     def create_tunnel_device_endpoint(self, tunnel_info):
         raise NotImplementedError
 
+    def create_tunnel_device_endpoint_end(self, tunnel_info):
+        raise NotImplementedError
+
     def create_tunnel_controller_endpoint(self, tunnel_info):
         raise NotImplementedError
 
@@ -71,6 +74,9 @@ class TunnelMode:
         raise NotImplementedError
 
     def update_tunnel_device_endpoint(self, tunnel_info):
+        raise NotImplementedError
+
+    def update_tunnel_device_endpoint_end(self, tunnel_info):
         raise NotImplementedError
 
     def update_tunnel_controller_endpoint(self, tunnel_info):

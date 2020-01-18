@@ -48,6 +48,8 @@ message TunnelInfo {
     string device_external_ip = 6;
     uint32 device_external_port = 7;
     uint32 vni = 8;
+    string device_vtep_mac = 9;
+    string controller_vtep_mac = 10;
 }
 
 /* MAC address */

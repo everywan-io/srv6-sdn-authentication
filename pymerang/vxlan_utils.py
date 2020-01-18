@@ -3,6 +3,7 @@
 import pynat
 from ipaddress import IPv4Network, IPv6Network
 from pyroute2 import IPRoute
+from pyroute2.netlink.rtnl import ndmsg
 
 from pymerang import tunnel_utils
 
@@ -12,6 +13,7 @@ VXLAN_DSTPORT = 4789
 ENABLE_UDP_CSUM = True
 #VXLAN_SRCPORT_MIN = 49152
 #VXLAN_SRCPORT_MAX = 65535
+MGMT_VNI = 0
 
 def create_vxlan(device, vni, phys_dev=None, remote=None,
                  local=None, remote6=None, local6=None,
@@ -115,7 +117,17 @@ def add_route(dst, gateway, dev, family):
     ip_route.route('add', dst=dst, oif=ip_route.link_lookup(ifname=dev)[0],
                     gateway=gateway, family=family)
 
-def update_fdb(dst, lladdr, dev):
+def create_fdb_entry(dst, lladdr, dev, port=VXLAN_DSTPORT):
+    # Get pyroute2 instance
+    ip_route = IPRoute()
+    # Replace the entry
+    ip_route.fdb('add',
+                 ifindex=ip_route.link_lookup(ifname=dev)[0],
+                 lladdr=lladdr,
+                 dst=dst,
+                 port=port)
+
+def update_fdb_entry(dst, lladdr, dev):
     # Get pyroute2 instance
     ip_route = IPRoute()
     # Replace the entry
@@ -123,6 +135,37 @@ def update_fdb(dst, lladdr, dev):
                  ifindex=ip_route.link_lookup(ifname=dev)[0],
                  lladdr=lladdr,
                  dst=dst)
+    
+def get_vxlan_mac(ifname):
+    # Get pyroute2 instance
+    ip_route = IPRoute()
+    # Get MAC address
+    return ip_route.get_links(ifname=ifname)[0].get_attr('IFLA_ADDRESS')
+
+def create_ip_neigh(dst, lladdr, dev):
+    # Get pyroute2 instance
+    ip_route = IPRoute()
+    # Add a permanent record on veth0
+    idx = ip_route.link_lookup(ifname=dev)[0]
+    # Create the neigh
+    ip_route.neigh('add',
+            dst=dst,
+            lladdr=lladdr,
+            ifindex=idx,
+            state=ndmsg.states['permanent'])
+
+def update_ip_neigh(dst, lladdr, dev):
+    # Get pyroute2 instance
+    ip_route = IPRoute()
+    # Add a permanent record on veth0
+    idx = ip_route.link_lookup(ifname=dev)[0]
+    # Create the neigh
+    ip_route.neigh('replace',
+            dst=dst,
+            lladdr=lladdr,
+            ifindex=idx,
+            state=ndmsg.states['permanent'])
+    
                 
 
 class TunnelVXLAN(tunnel_utils.TunnelMode):
@@ -149,45 +192,81 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         self.last_used_vni = -1
         self.server_ip = server_ip
         self.vni = dict()
+        self.initiated = False
 
     def create_tunnel_device_endpoint(self, tunnel_info):
+        # Extract the device ID
+        device_id = tunnel_info.device_id
+        # Extract the VTEP IPs and ports
+        #controller_vtep_ip = tunnel_info.controller_vtep_ip
+        #device_vtep_ip = tunnel_info.device_vtep_ip
+        #vtep_mask = tunnel_info.vtep_mask
+        #vni = tunnel_info.vni
+        #self.vni[device_id] = vni
+        # Get device IP
+        #host_name = socket.gethostname()
+        #device_ip = socket.gethostbyname(host_name)
+        #print('host name', host_name)
+        #print('device ip', device_ip)
+        
+
+        vni = MGMT_VNI
+
+        # Create the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
+        create_vxlan(device=vxlan_name, vni=vni,
+                     #remote=self.server_ip, #local=device_ip,
+                     dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
+                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+                     udp6zerocsumtx=ENABLE_UDP_CSUM,
+                     udp6zerocsumrx=not ENABLE_UDP_CSUM,
+                     learning=False)
+        # Bring the interface UP
+        enable_interface(device=vxlan_name)
+        
+        tunnel_info.device_vtep_mac = get_vxlan_mac(ifname=vxlan_name)
+        print('\n\n\n\n\nVTEP MAC', get_vxlan_mac(ifname=vxlan_name))
+        # Add a private address to the interface
+        #add_address(device=vxlan_name, address=device_vtep_ip,
+        #            mask=vtep_mask)
+        #print('ext ip', self.server_ip)
+        #print(controller_vtep_ip)
+        #self.controller_ip = controller_vtep_ip
+        #self.controller_ip[device_id] = controller_vtep_ip
+        # Route the packets sent to the device through the VTEP
+        #add_route(dst=self.server_ip, gateway=controller_vtep_ip,
+        #          family=tunnel_utils.getAddressFamily(self.server_ip),
+        #          dev=vxlan_name)
+
+    def create_tunnel_device_endpoint_end(self, tunnel_info):
         # Extract the device ID
         device_id = tunnel_info.device_id
         # Extract the VTEP IPs and ports
         controller_vtep_ip = tunnel_info.controller_vtep_ip
         device_vtep_ip = tunnel_info.device_vtep_ip
         vtep_mask = tunnel_info.vtep_mask
-        vni = tunnel_info.vni
-        self.vni[device_id] = vni
-        # Get device IP
-        #host_name = socket.gethostname()
-        #device_ip = socket.gethostbyname(host_name)
-        #print('host name', host_name)
-        #print('device ip', device_ip)
+        controller_vtep_mac = tunnel_info.controller_vtep_mac
 
-
+        vni = MGMT_VNI
 
         # Create the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
-        create_vxlan(device=vxlan_name, vni=vni,
-                     remote=self.server_ip, #local=device_ip,
-                     dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
-                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
-                     udp6zerocsumtx=ENABLE_UDP_CSUM,
-                     udp6zerocsumrx=not ENABLE_UDP_CSUM)
+        #create_vxlan(device=vxlan_name, vni=vni,
+        #             #remote=self.server_ip, #local=device_ip,
+        #             dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
+        #             srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+        #             udp6zerocsumtx=ENABLE_UDP_CSUM,
+        #             udp6zerocsumrx=not ENABLE_UDP_CSUM)
         # Bring the interface UP
-        enable_interface(device=vxlan_name)
+        #enable_interface(device=vxlan_name)
         # Add a private address to the interface
         add_address(device=vxlan_name, address=device_vtep_ip,
                     mask=vtep_mask)
-        print('ext ip', self.server_ip)
-        print(controller_vtep_ip)
-        #self.controller_ip = controller_vtep_ip
+        create_fdb_entry(dev=vxlan_name, lladdr=controller_vtep_mac,
+                         dst=self.server_ip)
+        create_ip_neigh(dev=vxlan_name, lladdr=controller_vtep_mac,
+                        dst=controller_vtep_ip)
         self.controller_ip[device_id] = controller_vtep_ip
-        # Route the packets sent to the device through the VTEP
-        #add_route(dst=self.server_ip, gateway=controller_vtep_ip,
-        #          family=tunnel_utils.getAddressFamily(self.server_ip),
-        #          dev=vxlan_name)
 
     def create_tunnel_controller_endpoint(self, tunnel_info):
         # Extract the device ID
@@ -197,10 +276,14 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # External IP and port of the device
         device_external_ip = tunnel_info.device_external_ip
         device_external_port = tunnel_info.device_external_port
+        # MAC address of the VTEP's device
+        device_vtep_mac = tunnel_info.device_vtep_mac
+        print('\n\n\nTEST VTEP TEST', device_vtep_mac)
         # VNI
         self.last_used_vni += 1
-        vni = self.last_used_vni
-        self.vni[device_id] = vni
+        #vni = self.last_used_vni
+        vni = MGMT_VNI
+        #self.vni[device_id] = vni
         # Generate private addresses for the device and controller VTEPs
         if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET6:
             net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
@@ -222,17 +305,27 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         self.vtep_mask[device_id] = vtep_mask
         # Create the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
-        create_vxlan(device=vxlan_name, vni=vni,
-                     remote=device_external_ip, local=self.server_ip,
-                     dstport=device_external_port, srcport_min=VXLAN_DSTPORT,
-                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
-                     udp6zerocsumtx=ENABLE_UDP_CSUM,
-                     udp6zerocsumrx=not ENABLE_UDP_CSUM)
-        # Bring the interface UP
-        enable_interface(device=vxlan_name)
+        if not self.initiated:
+            create_vxlan(device=vxlan_name, vni=vni,
+                        #remote=device_external_ip,
+                        local=self.server_ip,
+                        dstport=device_external_port, srcport_min=VXLAN_DSTPORT,
+                        srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+                        udp6zerocsumtx=ENABLE_UDP_CSUM,
+                        udp6zerocsumrx=not ENABLE_UDP_CSUM,
+                        learning=False)
+            # Bring the interface UP
+            enable_interface(device=vxlan_name)
+            self.initiated = True
         # Add a private address to the interface
         add_address(device=vxlan_name, address=controller_vtep_ip,
                     mask=vtep_mask)
+        create_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
+                         dst=device_external_ip, port=device_external_port)
+        create_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
+                        dst=device_vtep_ip)
+        # Get controller's VTEP mac address
+        tunnel_info.controller_vtep_mac = get_vxlan_mac(ifname=vxlan_name)
         self.external_ip[device_id] = device_external_ip
         # Route the packets sent to the device through the VTEP
         #add_route(dst=device_external_ip, gateway=device_vtep_ip,
@@ -246,65 +339,159 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         return tunnel_info
 
     def destroy_tunnel_device_endpoint(self, tunnel_info):
-        vni = self.vni[tunnel_info.device_id]
+        #vni = self.vni[tunnel_info.device_id]
+        vni = MGMT_VNI
+        
+        
+        vxlan_name = '%s-%s' % (self.name, vni)
+        
         print('remote vni')
         print(self.name)
         print(vni)
         # Delete the VXLAN interface
-        delete_interface(device='%s-%s' % (self.name, vni))
+        delete_interface(device=vxlan_name)
 
     def destroy_tunnel_controller_endpoint(self, tunnel_info):
         # Extract the device ID
         device_id = tunnel_info.device_id
+        vni = MGMT_VNI
+        
+        vxlan_name = '%s-%s' % (self.name, vni)
+        
         # Delete the VXLAN interface
-        delete_interface(device='%s-%s' % (self.name, device_id))       # TODO fix
+        delete_interface(device='%s-%s' % vxlan_name)       # TODO fix
 
-    def update_tunnel_device_endpoint(self, device_id, tunnel_info):
-        pass
+    def update_tunnel_device_endpoint(self, tunnel_info):
+        # Extract the device ID
+        device_id = tunnel_info.device_id
+        # Extract the VTEP IPs and ports
+        #controller_vtep_ip = tunnel_info.controller_vtep_ip
+        #device_vtep_ip = tunnel_info.device_vtep_ip
+        #vtep_mask = tunnel_info.vtep_mask
+        #vni = tunnel_info.vni
+        #self.vni[device_id] = vni
+        # Get device IP
+        #host_name = socket.gethostname()
+        #device_ip = socket.gethostbyname(host_name)
+        #print('host name', host_name)
+        #print('device ip', device_ip)
+        
 
-    def update_tunnel_controller_endpoint(self, device_id, tunnel_info):
+        vni = MGMT_VNI
+
+        # Create the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
+        #create_vxlan(device=vxlan_name, vni=vni,
+        #             #remote=self.server_ip, #local=device_ip,
+        #             dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
+        #             srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+        #             udp6zerocsumtx=ENABLE_UDP_CSUM,
+        #             udp6zerocsumrx=not ENABLE_UDP_CSUM,
+        #             learning=False)
+        # Bring the interface UP
+        #enable_interface(device=vxlan_name)
+        
+        tunnel_info.device_vtep_mac = get_vxlan_mac(ifname=vxlan_name)
+        print('\n\n\n\n\nVTEP MAC', get_vxlan_mac(ifname=vxlan_name))
+        # Add a private address to the interface
+        #add_address(device=vxlan_name, address=device_vtep_ip,
+        #            mask=vtep_mask)
+        #print('ext ip', self.server_ip)
+        #print(controller_vtep_ip)
+        #self.controller_ip = controller_vtep_ip
+        #self.controller_ip[device_id] = controller_vtep_ip
+        # Route the packets sent to the device through the VTEP
+        #add_route(dst=self.server_ip, gateway=controller_vtep_ip,
+        #          family=tunnel_utils.getAddressFamily(self.server_ip),
+        #          dev=vxlan_name)
+
+    def update_tunnel_device_endpoint_end(self, tunnel_info):
+        # Extract the device ID
+        device_id = tunnel_info.device_id
+        # Extract the VTEP IPs and ports
+        controller_vtep_ip = tunnel_info.controller_vtep_ip
+        device_vtep_ip = tunnel_info.device_vtep_ip
+        vtep_mask = tunnel_info.vtep_mask
+        controller_vtep_mac = tunnel_info.controller_vtep_mac
+
+        vni = MGMT_VNI
+
+        # Create the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
+        #create_vxlan(device=vxlan_name, vni=vni,
+        #             #remote=self.server_ip, #local=device_ip,
+        #             dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
+        #             srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+        #             udp6zerocsumtx=ENABLE_UDP_CSUM,
+        #             udp6zerocsumrx=not ENABLE_UDP_CSUM)
+        # Bring the interface UP
+        #enable_interface(device=vxlan_name)
+        # Add a private address to the interface
+        #add_address(device=vxlan_name, address=device_vtep_ip,
+        #            mask=vtep_mask)
+        replace_fdb_entry(dev=vxlan_name, lladdr=controller_vtep_mac,
+                         dst=self.server_ip)
+        replace_ip_neigh(dev=vxlan_name, lladdr=controller_vtep_mac,
+                        dst=controller_vtep_ip)
+        #self.controller_ip[device_id] = controller_vtep_ip
+
+    def update_tunnel_controller_endpoint(self, tunnel_info):
         # Extract the device ID
         device_id = tunnel_info.device_id
         # External IP and port of the device
         device_external_ip = tunnel_info.device_external_ip
         device_external_port = tunnel_info.device_external_port
+        # MAC address of the VTEP's device
+        device_vtep_mac = tunnel_info.device_vtep_mac
+        print('\n\n\nTEST VTEP TEST', device_vtep_mac)
         # VNI
-        #self.last_used_vni += 1
+        self.last_used_vni += 1
         #vni = self.last_used_vni
-        vni = self.vni[device_id]
+        vni = MGMT_VNI
+        #self.vni[device_id] = vni
         # Generate private addresses for the device and controller VTEPs
-        if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET6:
-            net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
-            net = IPv6Network(net)
-            controller_vtep_ip = net[0].__str__()
-            device_vtep_ip = net[1].__str__()
-            vtep_mask = net.prefixlen
-        elif tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET:
-            net = self.ipv4_net_allocator.nextNet()   # Change to make dependant from the device ID?
-            net = IPv4Network(net)
-            controller_vtep_ip = net[1].__str__()
-            device_vtep_ip = net[2].__str__()
-            vtep_mask = net.prefixlen
-        else:
-            print('Invalid family address: %s' % tunnel_info.device_external_ip)
-            exit(-1)
+        #if tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET6:
+        #    net = self.ipv6_net_allocator.nextNet()   # Change to make dependant from the device ID?
+        #    net = IPv6Network(net)
+        #    controller_vtep_ip = net[0].__str__()
+        #    device_vtep_ip = net[1].__str__()
+        #    vtep_mask = net.prefixlen
+        #elif tunnel_utils.getAddressFamily(tunnel_info.device_external_ip) == socket.AF_INET:
+        #    net = self.ipv4_net_allocator.nextNet()   # Change to make dependant from the device ID?
+        #    net = IPv4Network(net)
+        #    controller_vtep_ip = net[1].__str__()
+        #    device_vtep_ip = net[2].__str__()
+        #    vtep_mask = net.prefixlen
+        #else:
+        #    print('Invalid family address: %s' % tunnel_info.device_external_ip)
+        #    exit(-1)
         device_vtep_ip = self.device_ip[device_id]
         controller_vtep_ip = self.controller_ip[device_id]
         vtep_mask = self.vtep_mask[device_id]
         # Create the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
-        delete_interface(device=vxlan_name)
-        create_vxlan(device=vxlan_name, vni=vni,
-                     remote=device_external_ip, local=self.server_ip,
-                     dstport=device_external_port, srcport_min=VXLAN_DSTPORT,
-                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
-                     udp6zerocsumtx=ENABLE_UDP_CSUM,
-                     udp6zerocsumrx=not ENABLE_UDP_CSUM)
-        # Bring the interface UP
-        enable_interface(device=vxlan_name)
+        #if not self.initiated:
+        #    create_vxlan(device=vxlan_name, vni=vni,
+        #                #remote=device_external_ip,
+        #                local=self.server_ip,
+        #                dstport=device_external_port, srcport_min=VXLAN_DSTPORT,
+        #                srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+        #                udp6zerocsumtx=ENABLE_UDP_CSUM,
+        #                udp6zerocsumrx=not ENABLE_UDP_CSUM,
+        #                learning=False)
+        #    # Bring the interface UP
+        #    enable_interface(device=vxlan_name)
+        #    self.initiated = True
         # Add a private address to the interface
-        add_address(device=vxlan_name, address=controller_vtep_ip,
-                    mask=vtep_mask)
+        #add_address(device=vxlan_name, address=controller_vtep_ip,
+        #            mask=vtep_mask)
+        replace_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
+                         dst=device_external_ip, port=device_external_port)
+        replace_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
+                        dst=device_vtep_ip)
+        # Get controller's VTEP mac address
+        tunnel_info.controller_vtep_mac = get_vxlan_mac(ifname=vxlan_name)
+        self.external_ip[device_id] = device_external_ip
         # Route the packets sent to the device through the VTEP
         #add_route(dst=device_external_ip, gateway=device_vtep_ip,
         #          family=tunnel_utils.getAddressFamily(device_external_ip),
@@ -313,5 +500,5 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip
         tunnel_info.vtep_mask = vtep_mask
-        tunnel_info.vni = vni
+        #tunnel_info.vni = vni
         return tunnel_info
