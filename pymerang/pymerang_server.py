@@ -1,20 +1,16 @@
 #!/usr/bin/env python
 
+# General imports
+from argparse import ArgumentParser
 from concurrent import futures
-from multiprocessing import Process
 from threading import Thread
-from ipaddress import IPv6Network, IPv4Network
 from socket import AF_INET, AF_INET6
 import logging
 import time
-import inspect
-
+import grpc
+# pymerang dependencies
 from pymerang import utils
 from pymerang import tunnel_utils
-#from pymerang import nat_utils
-
-import grpc
-
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
@@ -23,10 +19,6 @@ from pymerang import status_codes_pb2
 DEFAULT_PYMERANG_SERVER_IP = '::'
 # Port of the gRPC server executing on the controller
 DEFAULT_PYMERANG_SERVER_PORT = 50061
-# IP address of the NAT discovery
-#NAT_DISCOVERY_SERVER_HOST = '::1'
-# Port number of the NAT discovery
-#NAT_DISCOVERY_SERVER_PORT = 50081
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
 
@@ -38,243 +30,277 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         self.controller = controller
 
     def RegisterDevice(self, request, context):
-        # Extract the parameters from the registration request
-        logging.debug('New device connected: %s' % request)
+        logging.info('New device connected: %s' % request)
+        # Get the IP address seen by the gRPC server
+        # It can be used for management
         mgmtip = context.peer()
         mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
+        # Extract the parameters from the registration request
+        #
+        # Device ID
         device_id = request.device.id
+        # Features supported by the device
         features = dict()
         for feature in request.device.features:
             name = feature.name
             port = feature.port
             features[name] = {name: name, port: port}
+        # Data needed for the device authentication
         auth_data = request.auth_data
+        # Interfaces of the devices
         interfaces = dict()
         for interface in request.interfaces:
+            # Interface name
             ifname = interface.name
-            mac_addrs = list()
-            ipv4_addrs = list()
-            ipv6_addrs = list()
-            for mac_addr in interface.mac_addrs:
-                mac_addrs.append({
-                    'broadcast': mac_addr.broadcast,
-                    'addr': mac_addr.addr
-                })
-            for ipv4_addr in interface.ipv4_addrs:
-                prefix = ipv4_addr.netmask.split('/')
-                if len(prefix) > 1:
-                    ipv4_addr.netmask = prefix[1]
-                ipv4_addrs.append({
-                    'broadcast': ipv4_addr.broadcast,
-                    'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
-                    'addr': ipv4_addr.addr,
-                    'ext_addr': ipv4_addr.ext_addr
-                })
-            for ipv6_addr in interface.ipv6_addrs:
-                prefix = ipv6_addr.netmask.split('/')
-                if len(prefix) > 1:
-                    ipv6_addr.netmask = prefix[1]
-                ipv6_addrs.append({
-                    'broadcast': ipv6_addr.broadcast,
-                    'netmask': ipv6_addr.netmask,
-                    'addr': ipv6_addr.addr.split('%')[0],
-                    'ext_addr': ipv6_addr.ext_addr
-                })
+            # MAC address
+            mac_addr = interface.mac_addr
+            # IPv4 addresses
+            ipv4_addrs = interface.ipv4_addrs
+            # IPv6 addresses
+            ipv6_addrs = interface.ipv6_addrs
+            # Save the interface
             interfaces[ifname] = {
                 'name': ifname,
-                'mac_addrs': mac_addrs,
+                'mac_addr': mac_addr,
                 'ipv4_addrs': ipv4_addrs,
                 'ipv6_addrs': ipv6_addrs,
                 'ipv4_subnets': list(),
                 'ipv6_subnets': list(),
+                'ext_ipv4_addr': list(),
+                'ext_ipv6_addr': list(),
                 'type': utils.InterfaceType.UNKNOWN,
             }
+        # Extract tunnel information
         tunnel_info = request.tunnel_info
-        # Register the device
+        # Prepare the response message
         reply = pymerang_pb2.RegisterDeviceReply()
         reply.tunnel_info.device_id = tunnel_info.device_id
         reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
-        reply.tunnel_info.device_external_port = tunnel_info.device_external_port
+        reply.tunnel_info.device_external_port = \
+            tunnel_info.device_external_port
         reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
+        # Register the device
+        logging.debug('Trying to register the device %s' % device_id)
         response, tunnel_info = self.controller.register_device(
-            device_id, features, interfaces, mgmtip, auth_data, reply.tunnel_info
+            device_id, features, interfaces,
+            mgmtip, auth_data, reply.tunnel_info
         )
-        if response is not status_codes_pb2.STATUS_OK:
+        if response != status_codes_pb2.STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response))
-        # Generate the configuration for the device
-        #config = self.controller.devices[device_id]['device_configuration']
-        #config = self.controller.configurations[device_id]
-        reply.status = status_codes_pb2.STATUS_OK
-        #reply.device_configuration =       # TODO
+        # Set the status code
+        reply.status = status_codes_pb2.STATUS_SUCCESS
+        # Send the reply
+        logging.info('Sending the reply: %s' % reply)
         return reply
 
     def UpdateDeviceRegistration(self, request, context):
-        # Extract the parameters from the registration request
-        logging.debug('Update device registration: %s' % request)
+        logging.info('Update device registration: %s' % request)
+        # Get the IP address seen by the gRPC server
+        # It can be used for management
         mgmtip = context.peer()
         mgmtip = utils.parse_ip_port(mgmtip)[0].__str__()
+        # Extract the parameters from the registration request
+        #
+        # Device ID
         device_id = request.device.id
-        #features = dict()
-        #for feature in request.device.features:
-        #    name = feature.name
-        #    port = feature.port
-        #    features[name] = {name: name, port: port}
-        #auth_data = request.auth_data
+        # Interfaces of the devices
         interfaces = dict()
         for interface in request.interfaces:
+            # Interface name
             ifname = interface.name
-            mac_addrs = list()
-            ipv4_addrs = list()
-            ipv6_addrs = list()
-            for mac_addr in interface.mac_addrs:
-                mac_addrs.append({
-                    'broadcast': mac_addr.broadcast,
-                    'addr': mac_addr.addr
-                })
-            for ipv4_addr in interface.ipv4_addrs:
-                prefix = ipv4_addr.netmask.split('/')
-                if len(prefix) > 1:
-                    ipv4_addr.netmask = prefix[1]
-                ipv4_addrs.append({
-                    'broadcast': ipv4_addr.broadcast,
-                    'netmask': str(IPv4Network('0.0.0.0/%s' % ipv4_addr.netmask).prefixlen),
-                    'addr': ipv4_addr.addr,
-                    'ext_addr': ipv4_addr.ext_addr
-                })
-            for ipv6_addr in interface.ipv6_addrs:
-                prefix = ipv6_addr.netmask.split('/')
-                if len(prefix) > 1:
-                    ipv6_addr.netmask = prefix[1]
-                ipv6_addrs.append({
-                    'broadcast': ipv6_addr.broadcast,
-                    'netmask': ipv6_addr.netmask,
-                    'addr': ipv6_addr.addr.split('%')[0],
-                    'ext_addr': ipv6_addr.ext_addr
-                })
+            # MAC address
+            mac_addr = interface.mac_addr
+            # IPv4 addresses
+            ipv4_addrs = interface.ipv4_addrs
+            # IPv6 addresses
+            ipv6_addrs = interface.ipv6_addrs
+            # Save the interface
             interfaces[ifname] = {
                 'name': ifname,
-                'mac_addrs': mac_addrs,
+                'mac_addr': mac_addr,
                 'ipv4_addrs': ipv4_addrs,
                 'ipv6_addrs': ipv6_addrs,
                 'ipv4_subnets': list(),
                 'ipv6_subnets': list(),
+                'ext_ipv4_addr': list(),
+                'ext_ipv6_addr': list(),
                 'type': utils.InterfaceType.UNKNOWN,
             }
+        # Extract tunnel information
         tunnel_info = request.tunnel_info
-        # Register the device
+        # Prepare the reply message
         reply = pymerang_pb2.RegisterDeviceReply()
         reply.tunnel_info.device_id = tunnel_info.device_id
         reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
-        reply.tunnel_info.device_external_port = tunnel_info.device_external_port
+        reply.tunnel_info.device_external_port = \
+            tunnel_info.device_external_port
         reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
+        # Update the device registration
+        logging.debug('Trying to update the device registration for device %s'
+                      % device_id)
         response, tunnel_info = self.controller.update_device_registration(
             device_id, None, interfaces, mgmtip, None, reply.tunnel_info
         )
-        if response is not status_codes_pb2.STATUS_OK:
+        if response is not status_codes_pb2.STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response))
-        # Generate the configuration for the device
-        #config = self.controller.devices[device_id]['device_configuration']
-        #config = self.controller.configurations[device_id]
-        reply.status = status_codes_pb2.STATUS_OK
-        #reply.device_configuration =       # TODO
+        # Set the status code
+        reply.status = status_codes_pb2.STATUS_SUCCESS
+        # Send the reply
+        logging.info('Sending the reply: %s' % reply)
         return reply
-        
+
+    def UnregisterDevice(self, request, context):
+        logging.info('Unregister device request: %s' % request)
+        # Extract the parameters from the registration request
+        #
+        # Device ID
+        device_id = request.device.id
+        # Extract tunnel information
+        tunnel_info = request.tunnel_info
+        # Unregister the device
+        logging.debug('Trying to unregister the device %s'
+                      % device_id)
+        response, tunnel_info = self.controller.unregister_device(
+            device_id
+        )
+        if response is not status_codes_pb2.STATUS_SUCCESS:
+            return (pymerang_pb2
+                    .RegisterDeviceReply(status=response))
+        # Send the reply
+        reply = pymerang_pb2.RegisterDeviceReply(
+            status=status_codes_pb2.STATUS_SUCCESS
+        )
+        logging.info('Sending the reply: %s' % reply)
+        return reply
+
 
 class PymerangController:
 
-    def __init__(self, server_ip='::1', server_port=50051, devices=None, keep_alive_interval=30):
+    def __init__(self, server_ip='::1', server_port=50051,
+                 devices=None, keep_alive_interval=30):
+        # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
+        # Port used by the gRPC server
         self.server_port = server_port
+        # Data structure for storing devices information
         if devices is not None:
             self.devices = devices
         else:
             self.devices = dict()
-        self.configurations = dict()
+        # Tunnel state
         self.tunnel_state = None
-        self.tunnel_modes = dict()
+        # Mapping device to tunnel mode
+        self.device_to_tunnel_mode = dict()
+        # Interval between two consecutive keep alive messages
         self.keep_alive_interval = keep_alive_interval
+        self.device_enforced_ports = dict()  # TODO
 
+    # Authenticate a device
     def authenticate_device(self, device_id, auth_data):
-        return True     # TODO
+        logging.info('Authenticating the device %s' % device_id)
+        # Set the tenant ID in the tunnel info
+        tenantid = 10       # TODO dynamic tenant IDs
+        return True, tenantid
 
-    def register_device(self, device_id, features, interfaces, mgmtip, auth_data, tunnel_info):
+    # Get the port for the devices
+    def get_device_enforced_port(self, device_id):
+        return None     # TODO
+
+    # Register a device
+    def register_device(self, device_id, features,
+                        interfaces, mgmtip, auth_data, tunnel_info):
+        logging.info('Registering the device %s' % device_id)
+        # If the device is already registered, un-register it before
+        # starting the new registration
         if device_id in self.devices:
             self.unregister_device(device_id, tunnel_info)
         # Device authentication
-        authenticated = self.authenticate_device(device_id, auth_data)
+        authenticated, tenantid = self.authenticate_device(
+            device_id, auth_data)
         if not authenticated:
+            logging.info('Authentication failed for the device %s' % device_id)
             return status_codes_pb2.STATUS_UNAUTHORIZED, None
-        # Get the tunnel mode required by the device
+        # Get the tunnel mode requested by the device
         tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+        # Set the port
+        port = self.get_device_enforced_port(device_id)
+        if port is not None:
+            tunnel_info.device_enforced_port = port
+        else:
+            tunnel_info.device_enforced_port = tunnel_info.device_external_port
         # Create the tunnel
-        tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
+        logging.info('Trying to create the tunnel for the device %s'
+                     % device_id)
+        res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
+        if res != status_codes_pb2.STATUS_SUCCESS:
+            logging.warning('Cannot create the tunnel')
+            return
         # Register the device
-        self.devices[device_id] = dict()
-        self.devices[device_id]['features'] = features
-        self.devices[device_id]['interfaces'] = interfaces
-        if tunnel_mode.get_device_ip(device_id) is not None:
-            mgmtip = tunnel_mode.get_device_ip(device_id)
-        self.devices[device_id]['mgmtip'] = mgmtip
-        self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
-        self.devices[device_id]['tunnel_info'] = tunnel_info
-        self.devices[device_id]['status'] = utils.DeviceStatus.CONNECTED
-        self.tunnel_modes[device_id] = tunnel_mode
-        # Send a keep-alive messages to keep the tunnel opened, if required
+        self.devices[device_id] = {
+            'features': features,
+            'interfaces': interfaces,
+            'mgmtip': mgmtip,
+            'tunnel_mode': tunnel_info.tunnel_mode,
+            'tunnel_info': tunnel_info,
+            'tenantid': tenantid,
+            'status': utils.DeviceStatus.CONNECTED
+        }
+        # If a private IP address is present, use it as mgmt address
+        if tunnel_mode.get_device_private_ip(device_id) is not None:
+            mgmtip = tunnel_mode.get_device_private_ip(device_id)
+            self.devices[device_id]['mgmtip'] = mgmtip
+        # Update mapping device to tunnel mode
+        self.device_to_tunnel_mode[device_id] = tunnel_mode
+        # Send a keep-alive messages to keep the tunnel opened,
+        # if required for the tunnel mode
         if tunnel_mode.require_keep_alive_messages:
-            #Thread(target=utils.start_keep_alive_udp, args=(controller_ip, 50000, 3), daemon=False).start()
-            Thread(target=utils.start_keep_alive_icmp, args=(mgmtip, self.keep_alive_interval, 3), daemon=False).start()
-        logging.info('New device registered: %s' % self.devices[device_id])
-        # Return the configuration
-        return status_codes_pb2.STATUS_OK, tunnel_info
+            Thread(target=utils.start_keep_alive_icmp, args=(
+                mgmtip, self.keep_alive_interval, 3), daemon=False).start()
+        # Set the tenant ID
+        tunnel_info.tenantid = tenantid
+        # Success
+        logging.debug('New device registered:\n%s' % self.devices[device_id])
+        return status_codes_pb2.STATUS_SUCCESS, tunnel_info
 
-    def update_device_registration(self, device_id, tunnel_info):
-        # Device authentication
-        #authenticated = self.authenticate_device(device_id, auth_data)
-        #if not authenticated:
-        #    return status_codes_pb2.STATUS_UNAUTHORIZED, None
-        # Get the tunnel mode required by the device
-        #tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
-        #tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
-        # Create the tunnel
-        tunnel_mode = self.tunnel_modes[device_id]
+    # Update device registration
+    def update_device_registration(self, device_id, interfaces, tunnel_info):
+        logging.info('Updating the device %s' % device_id)
+        # Update the tunnel
+        logging.debug('Trying to update the tunnel for the device' % device_id)
+        tunnel_mode = self.device_to_tunnel_mode[device_id]
         tunnel_mode.update_tunnel_controller_endpoint(device_id, tunnel_info)
-        # Register the device
-        #self.devices[device_id] = dict()
-        #self.devices[device_id]['features'] = features
+        # Update the device information
         self.devices[device_id]['interfaces'] = interfaces
-        #print('TUNNEL DeV IP', tunnel_mode.device_ip)
+        # Update the management IP address
         if tunnel_mode.get_device_ip(device_id) is not None:
             mgmtip = tunnel_mode.get_device_ip(device_id)
-        #    print('mgmtmgmtmgmtmgmtm', mgmtip)
         self.devices[device_id]['mgmtip'] = mgmtip
-        #self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
-        #self.devices[device_id]['tunnel_info'] = tunnel_info
-        #self.tunnel_modes[device_id] = tunnel_mode
-        logging.info('Updated device registration: %s' % self.devices[device_id])
-        # Return the configuration
-        return status_codes_pb2.STATUS_OK, tunnel_info
+        # Success
+        logging.debug('Updated device registration: %s' %
+                      self.devices[device_id])
+        return status_codes_pb2.STATUS_SUCCESS, tunnel_info
 
     def unregister_device(self, device_id):
+        logging.debug('Unregistering the device %s' % device_id)
         # Get the tunnel mode
         tunnel_mode = self.devices[device_id]['tunnel_mode']
+        # Get the tunnel info
         tunnel_info = self.devices[device_id]['tunnel_info']
-        del self.tunnel_modes[device_id]
+        # Remove the device from the data structures
+        del self.device_to_tunnel_mode[device_id]
+        del self.devices[device_id]
         # Destroy the tunnel
+        logging.debug(
+            'Trying to destroy the tunnel for the device %s' % device_id)
         tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
-
-    def load_device_config(self):
-        #self.devices[0] = dict()
-        #self.devices[0]['device_configuration'] = {}
-        self.configurations = {
-            1: {},
-            2: {},
-            3: {},
-        }
+        # Success
+        logging.debug('Device unregistered: %s' % device_id)
+        return status_codes_pb2.STATUS_SUCCESS, tunnel_info
 
     def serve(self):
         # Initialize tunnel state
@@ -284,21 +310,17 @@ class PymerangController:
         pymerang_pb2_grpc.add_PymerangServicer_to_server(
             PymerangServicer(self), server
         )
-        print(self.server_ip)
         if tunnel_utils.getAddressFamily(self.server_ip) == AF_INET6:
-            print('IPv6')
             server_address = '[%s]:%s' % (self.server_ip, self.server_port)
         elif tunnel_utils.getAddressFamily(self.server_ip) == AF_INET:
-            print('IPv4')
             server_address = '%s:%s' % (self.server_ip, self.server_port)
         else:
             logging.error('Invalid server address %s' % self.server_ip)
             return
-        #server_address = '[%s]:%s' % ('::', self.server_port)
         logging.info('Server started: listening on %s' % server_address)
         server.add_insecure_port(server_address)
         server.start()
-        #server.wait_for_termination()
+        # Wait for server termination
         while True:
             time.sleep(10)
 
@@ -309,28 +331,35 @@ def parse_arguments():
     parser = ArgumentParser(
         description='pymerang server'
     )
+    # Debug mode
     parser.add_argument(
         '-d', '--debug', action='store_true', help='Activate debug logs'
     )
+    # Secure mode
     parser.add_argument(
         '-s', '--secure', action='store_true', help='Activate secure mode'
     )
+    # gRPC server IP
     parser.add_argument(
         '-i', '--server-ip', dest='server_ip',
         default=DEFAULT_PYMERANG_SERVER_IP, help='Server IP address'
     )
+    # gRPC server port
     parser.add_argument(
         '-p', '--server-port', dest='server_port',
         default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
     )
+    # Interval between two consecutive keep alive messages
     parser.add_argument(
         '-k', '--keep-alive-interval', dest='kee_alive_interval',
-        default=DEFAULT_KEEP_ALIVE_INTERVAL, help='Interval between two consecutive keep alive'
+        default=DEFAULT_KEEP_ALIVE_INTERVAL,
+        help='Interval between two consecutive keep alive'
     )
     # Parse input parameters
     args = parser.parse_args()
     # Return the arguments
     return args
+
 
 if __name__ == '__main__':
     args = parse_arguments()
@@ -344,15 +373,15 @@ if __name__ == '__main__':
         secure = True
     else:
         secure = False
-    # Server IP
+    # gRPC server IP
     server_ip = args.server_ip
-    # Server port
+    # gRPC server port
     server_port = args.server_port
     # Devices
     devices = dict()
     # Keep alive interval
     keep_alive_interval = args.keep_alive_interval
     # Start server
-    controller = PymerangController(server_ip, server_port, devices, keep_alive_interval)
-    controller.load_device_config()
+    controller = PymerangController(server_ip, server_port,
+                                    devices, keep_alive_interval)
     controller.serve()

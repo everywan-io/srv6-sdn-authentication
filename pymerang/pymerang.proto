@@ -1,7 +1,9 @@
 syntax = "proto3";
 
+/* Define package */
 package pymerang;
 
+/* Import status codes */
 import "pymerang/status_codes.proto";
 
 
@@ -12,6 +14,8 @@ service Pymerang {
   rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Update device registration
   rpc UpdateDeviceRegistration(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Unregister device registration
+  rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
 
 /* Message representing a feature supported by a device */
@@ -50,36 +54,18 @@ message TunnelInfo {
     uint32 vni = 8;
     string device_vtep_mac = 9;
     string controller_vtep_mac = 10;
-}
-
-/* MAC address */
-message MACAddress {
-  string broadcast = 1;
-  string addr = 2;
-}
-
-/* IPv4 address */
-message IPv4Address {
-  string broadcast = 1;
-  string addr = 2;
-  string netmask = 3;
-  string ext_addr = 4;
-}
-
-/* IPv6 address */
-message IPv6Address {
-  string broadcast = 1;
-  string addr = 2;
-  string netmask = 3;
-  string ext_addr = 4;
+    uint32 device_enforced_port = 11;
+    uint32 tenantid = 12;
 }
 
 /* Interface */
 message Interface {
     string name = 1;
-    repeated MACAddress mac_addrs = 2;
-    repeated IPv4Address ipv4_addrs = 3;
-    repeated IPv6Address ipv6_addrs = 4;
+    string mac_addr = 2;
+    repeated string ipv4_addrs = 3;
+    repeated string ipv6_addrs = 4;
+    repeated string ext_ipv4_addrs = 5;
+    repeated string ext_ipv6_addrs = 6;
 }
 
 /* RegisterDevice request message */
@@ -90,14 +76,8 @@ message RegisterDeviceRequest {
   repeated Interface interfaces = 4;
 }
 
-/* Device Configuration */
-message DeviceConfiguration {
-  
-}
-
 /* Reports the outcome of a gRPC request command */
 message RegisterDeviceReply {
   StatusCode status = 1;
-  DeviceConfiguration device_configuration = 2;
-  TunnelInfo tunnel_info = 3;
+  TunnelInfo tunnel_info = 2;
 }

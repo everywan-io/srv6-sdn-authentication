@@ -4,6 +4,7 @@ package pymerang;
 
 /* Status codes */
 enum StatusCode {
-  STATUS_OK = 0;
+  STATUS_SUCCESS = 0;
   STATUS_UNAUTHORIZED = 1;
+  STATUS_INTERNAL_ERROR = 2;
 }
