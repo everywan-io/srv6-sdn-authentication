@@ -5,6 +5,7 @@ import logging
 import pynat
 # pymerang imports
 from pymerang import tunnel_utils
+from pymerang import status_codes_pb2
 
 
 class NoTunnel(tunnel_utils.TunnelMode):
@@ -36,25 +37,25 @@ class NoTunnel(tunnel_utils.TunnelMode):
                          debug=debug)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS
 
     def create_tunnel_device_endpoint_end(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS
 
     def create_tunnel_controller_endpoint(self, tunnel_info):
-        return tunnel_info
+        return status_codes_pb2.STATUS_SUCCESS
 
     def update_tunnel_device_endpoint(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS
 
     def update_tunnel_device_endpoint_end(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS
 
     def update_tunnel_controller_endpoint(self, tunnel_info):
-        return tunnel_info
+        return status_codes_pb2.STATUS_SUCCESS
 
     def destroy_tunnel_device_endpoint(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS
 
     def destroy_tunnel_controller_endpoint(self, tunnel_info):
-        pass
+        return status_codes_pb2.STATUS_SUCCESS

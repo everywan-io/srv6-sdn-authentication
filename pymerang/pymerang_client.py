@@ -9,6 +9,8 @@ import grpc
 import json
 from threading import Thread
 from socket import AF_INET6, AF_INET
+# ipaddress dependencies
+from ipaddress import IPv4Address, IPv6Address
 # pymerang dependencies
 from pymerang import utils
 from pymerang import pymerang_pb2
@@ -175,53 +177,57 @@ class PymerangDevice:
                 for addr in ifinfo['ipv4_addrs']:
                     # Run the stun test to discover the
                     # external IP and port of the interface
-                    try:
-                        nat_type, external_ip, external_port = \
-                            pynat.get_ip_info(addr,
-                                              self.nat_discovery_client_port,
-                                              self.nat_discovery_server_ip,
-                                              self.nat_discovery_server_port
-                                              )
-                        if external_ip is not None:
-                            interface.ext_ipv4_addrs.append(external_ip)
-                    except OSError as e:
-                        logging.warning('Error running STUN test with the '
-                                        'following parameters\n'
-                                        'STUN client IP: %s\n'
-                                        'STUN client PORT: %s\n'
-                                        'STUN server IP: %s\n'
-                                        'STUN server port: %s\n'
-                                        'Error: %s\n\n'
-                                        % (self.nat_discovery_client_ip,
-                                           self.nat_discovery_client_port,
-                                           self.nat_discovery_server_ip,
-                                           self.nat_discovery_server_port,
-                                           e))
+                    addr = addr.split('/')[0]
+                    if not IPv4Address(addr).is_link_local:
+                        try:
+                            nat_type, external_ip, external_port = \
+                                pynat.get_ip_info(addr.split('/')[0],
+                                                self.nat_discovery_client_port,
+                                                self.nat_discovery_server_ip,
+                                                self.nat_discovery_server_port
+                                                )
+                            if external_ip is not None:
+                                interface.ext_ipv4_addrs.append(external_ip)
+                        except OSError as e:
+                            logging.warning('Error running STUN test with the '
+                                            'following parameters\n'
+                                            'STUN client IP: %s\n'
+                                            'STUN client PORT: %s\n'
+                                            'STUN server IP: %s\n'
+                                            'STUN server port: %s\n'
+                                            'Error: %s\n\n'
+                                            % (addr.split('/')[0],
+                                            self.nat_discovery_client_port,
+                                            self.nat_discovery_server_ip,
+                                            self.nat_discovery_server_port,
+                                            e))
                 for addr in ifinfo['ipv6_addrs']:
                     # Run the stun test to discover the
                     # external IP and port of the interface
-                    try:
-                        nat_type, external_ip, external_port = \
-                            pynat.get_ip_info(addr,
-                                              self.nat_discovery_client_port,
-                                              self.nat_discovery_server_ip,
-                                              self.nat_discovery_server_port
-                                              )
-                        if external_ip is not None:
-                            interface.ext_ipv6_addrs.append(external_ip)
-                    except OSError as e:
-                        logging.warning('Error running STUN test with the '
-                                        'following parameters\n'
-                                        'STUN client IP: %s\n'
-                                        'STUN client PORT: %s\n'
-                                        'STUN server IP: %s\n'
-                                        'STUN server port: %s\n'
-                                        'Error: %s\n\n'
-                                        % (self.nat_discovery_client_ip,
-                                           self.nat_discovery_client_port,
-                                           self.nat_discovery_server_ip,
-                                           self.nat_discovery_server_port,
-                                           e))
+                    addr = addr.split('/')[0]
+                    if not IPv6Address(addr).is_link_local:
+                        try:
+                            nat_type, external_ip, external_port = \
+                                pynat.get_ip_info(addr.split('/')[0],
+                                                self.nat_discovery_client_port,
+                                                self.nat_discovery_server_ip,
+                                                self.nat_discovery_server_port
+                                                )
+                            if external_ip is not None:
+                                interface.ext_ipv6_addrs.append(external_ip)
+                        except OSError as e:
+                            logging.warning('Error running STUN test with the '
+                                            'following parameters\n'
+                                            'STUN client IP: %s\n'
+                                            'STUN client PORT: %s\n'
+                                            'STUN server IP: %s\n'
+                                            'STUN server port: %s\n'
+                                            'Error: %s\n\n'
+                                            % (addr.split('/')[0],
+                                            self.nat_discovery_client_port,
+                                            self.nat_discovery_server_ip,
+                                            self.nat_discovery_server_port,
+                                            e))
         # Set the tunnel info
         tunnel_info = request.tunnel_info
         tunnel_info.tunnel_mode = utils.TUNNEL_MODES[tunnel_mode.name]
