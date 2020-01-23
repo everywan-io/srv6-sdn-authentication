@@ -283,7 +283,7 @@ class PymerangController:
         # If the device is already registered, un-register it before
         # starting the new registration
         if device_id in self.devices:
-            self.unregister_device(device_id, tunnel_info)
+            logging.warning('The device %s is already registered' % device_id)
         # Device authentication
         authenticated, tenantid, vxlan_port = self.authenticate_device(
             device_id, auth_data)
@@ -311,38 +311,36 @@ class PymerangController:
 
     # Update tunnel mode
     def update_tunnel_mode(self, device_id, interfaces, mgmtip, tunnel_info):
-        logging.debug('Unregistering the device %s' % device_id)
-        # Get the tunnel mode
-        tunnel_mode = self.devices[device_id]['tunnel_mode']
-        # Get the tunnel info
-        #tunnel_info = self.devices[device_id]['tunnel_info']
-    
-    
-        logging.info('Updating the device %s' % device_id)
+        logging.info('Updating the tunnel for the device %s' % device_id)
         # Get the tunnel mode requested by the device
         tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
-        # Destroy the tunnel
+        # If a tunnel already exists, we need to destroy it or update it
         if self.devices[device_id]['tunnel_mode'] is None:
             # Create the tunnel
             logging.info('Trying to create the tunnel for the device %s'
-                        % device_id)
+                         % device_id)
             res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
             if res != STATUS_SUCCESS:
                 logging.warning('Cannot create the tunnel')
                 return
-        elif self.devices[device_id]['tunnel_info']['nat_type'] != tunnel_info.nat_type:
+        elif self.devices[device_id]['tunnel_mode'] != tunnel_info.tunnel_mode:
+            # The tunnel already exists and the NAT type has changed
             logging.debug(
                 'Trying to destroy the tunnel for the device %s' % device_id)
-            tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
-            # Create the tunnel
+            # Destroy the current tunnel
+            old_tunnel_mode = self.tunnel_state.tunnel_modes[self.devices[device_id]['tunnel_mode']]
+            old_tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
+            # Create a new tunnel
             logging.info('Trying to create the tunnel for the device %s'
-                        % device_id)
+                         % device_id)
             res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
             if res != STATUS_SUCCESS:
                 logging.warning('Cannot create the tunnel')
                 return
         else:
+            # The tunnel already exists and the NAT type has not changed
+            # Update the tunnel
             tunnel_mode.update_tunnel_controller_endpoint(tunnel_info)
         
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
