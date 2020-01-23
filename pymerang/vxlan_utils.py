@@ -367,10 +367,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                           tunnel_info.device_external_ip)
             return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Extract the port
-        if tunnel_info.device_enforced_port is not None:
-            port = tunnel_info.device_enforced_port
-        else:
-            port = device_external_port
+        port = tunnel_info.vxlan_port
         # Create a FDB entry that associate the device VTEP MAC address
         # to the device IP address
         logging.debug('Attempting to add the entry to the FDB\n'

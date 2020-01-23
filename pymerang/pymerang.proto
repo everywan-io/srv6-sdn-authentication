@@ -13,7 +13,7 @@ service Pymerang {
   // Register a device
   rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Update device registration
-  rpc UpdateDeviceRegistration(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  rpc UpdateTunnelMode(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Unregister device registration
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
@@ -26,7 +26,7 @@ message Feature {
 
 /* Authentication data */
 message AuthData {
-  
+  string token = 1;
 }
 
 /* Message representing a device */
@@ -54,8 +54,8 @@ message TunnelInfo {
     uint32 vni = 8;
     string device_vtep_mac = 9;
     string controller_vtep_mac = 10;
-    uint32 device_enforced_port = 11;
-    uint32 tenantid = 12;
+    uint32 tenantid = 11;
+    uint32 vxlan_port = 12;
 }
 
 /* Interface */
@@ -80,4 +80,5 @@ message RegisterDeviceRequest {
 message RegisterDeviceReply {
   StatusCode status = 1;
   TunnelInfo tunnel_info = 2;
+  uint32 vxlan_port = 3;
 }

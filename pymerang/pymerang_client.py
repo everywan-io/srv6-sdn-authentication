@@ -72,10 +72,52 @@ class PymerangDevice:
         self.features = config['features']
         # Save interval between two consecutive keep alive messages
         self.keep_alive_interval = keep_alive_interval
+        # VXLAN enforced port
+        self.enforced_vxlan_port = None
+        # Token
+        self.token = 'xxxxxx'       # TODO
+        # Tunnel state
+        self.tunnel_state = None
 
     def register_device(self, stub):
-        # Initialize tunnel state
-        tunnel_state = utils.TunnelState(server_ip, self.debug)
+        # Prepare the registration message
+        request = pymerang_pb2.RegisterDeviceRequest()
+        # Set the device ID
+        request.device.id = self.device_id
+        # Set the token
+        request.auth_data.token = self.token
+        # Set the features list
+        for feature in self.features:
+            f = request.device.features.add()
+            f.name = feature['name']
+            if feature.get('port') is not None:
+                f.port = feature['port']
+        # Set the interfaces
+        interfaces = utils.get_local_interfaces()
+        for ifname, ifinfo in interfaces.items():
+            interface = request.interfaces.add()
+            interface.name = ifname
+            interface.mac_addr = ifinfo['mac_addr']
+            interface.ipv6_addrs.extend(ifinfo['ipv6_addrs'])
+            interface.ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+        # Send the registration request
+        logging.info('Sending the registration request')
+        response = stub.RegisterDevice(request)
+        if response.status == status_codes_pb2.STATUS_SUCCESS:
+            logging.info('Device authenticated')
+            self.vxlan_port = response.vxlan_port
+            # Return the configuration
+            return status_codes_pb2.STATUS_SUCCESS
+        elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+            # Authentication failed
+            logging.warning('Authentication failed')
+            return status_codes_pb2.STATUS_UNAUTHORIZED
+        else:
+            # Unknown status code
+            logging.warning('Unknown status code: %s' % response.status)
+            return response.status
+
+    def update_tunnnel_mode(self, stub):
         # Run the stun test to discover the NAT type
         logging.info('Running STUN test to discover the NAT type\n'
                      'STUN client IP: %s\nSTUN client PORT: %s\n'
@@ -93,6 +135,10 @@ class PymerangDevice:
         if nat_type is None:
             logging.error('Error in STUN client')
         logging.info('NAT detected: %s' % nat_type)
+        # Check if the tunnel mode has changed
+        tunnel_mode_changed = True
+        if self.nat_type is not None and self.nat_type == nat_type:
+            tunnel_mode_changed = False
         # Save the NAT type
         self.nat_type = nat_type
         # Save the external IP address
@@ -100,29 +146,22 @@ class PymerangDevice:
         # Save the external port
         self.external_port = external_port
         # Get the best tunnel mode working with the NAT type
-        self.tunnel_mode = tunnel_state.select_tunnel_mode(nat_type)
-        if self.tunnel_mode is None:
+        tunnel_mode = self.tunnel_state.select_tunnel_mode(nat_type)
+        if tunnel_mode is None:
             logging.error('No tunnel mode supporting the NAT type')
             return
-        logging.info('Tunnel mode selected: %s' % self.tunnel_mode.name)
+        logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
         # Prepare the registration message
         request = pymerang_pb2.RegisterDeviceRequest()
         # Set the device ID
         request.device.id = self.device_id
-        # Set the features list
-        for feature in self.features:
-            f = request.device.features.add()
-            f.name = feature['name']
-            if feature.get('port') is not None:
-                f.port = feature['port']
         # Set the interfaces
         interfaces = utils.get_local_interfaces()
         for ifname, ifinfo in interfaces.items():
             interface = request.interfaces.add()
             interface.name = ifname
-            interface.mac_addr = ifinfo['mac_addr']
-            interface.ipv6_addrs.extend(ifinfo['ipv6_addrs'])
-            interface.ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+            interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
+            interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
             if ifname != 'lo':
                 for addr in ifinfo['ipv4_addrs']:
                     # Run the stun test to discover the
@@ -176,24 +215,41 @@ class PymerangDevice:
                                            e))
         # Set the tunnel info
         tunnel_info = request.tunnel_info
-        tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
+        tunnel_info.tunnel_mode = utils.TUNNEL_MODES[tunnel_mode.name]
         tunnel_info.device_id = self.device_id
         if self.external_ip is not None:
             tunnel_info.device_external_ip = self.external_ip
             tunnel_info.device_external_port = self.external_port
-        # Create the tunnel
-        logging.info('Creating the tunnel for the device')
-        self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+        # Configure the tunnel
+        if self.tunnel_mode is None:
+            self.tunnel_mode = tunnel_mode
+            # Create the tunnel
+            logging.info('Creating the tunnel for the device')
+            self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+        elif tunnel_mode_changed:
+            self.tunnel_mode = tunnel_mode
+            # Destroy the tunnel
+            logging.debug('Destroy current tunnel mode')
+            self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
+            # Create the tunnel
+            logging.info('Creating the tunnel for the device')
+            self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+        else:
+            # Update the tunnel
+            logging.info('Updating the tunnel for the device')
+            self.tunnel_mode.update_tunnel_device_endpoint(tunnel_info)
         # Send the registration request
         logging.info('Sending the registration request')
-        response = stub.RegisterDevice(request)
+        response = stub.UpdateTunnelMode(request)
         if response.status == status_codes_pb2.STATUS_SUCCESS:
-            # Device authenticated
+            # Tunnel mode established
             tunnel_info = response.tunnel_info
-            logging.info('Device authenticated')
             # Create the tunnel
             logging.info('Finalizing tunnel configuration')
-            self.tunnel_mode.create_tunnel_device_endpoint_end(tunnel_info)
+            if tunnel_mode_changed:
+                self.tunnel_mode.create_tunnel_device_endpoint_end(tunnel_info)
+            else:
+                self.tunnel_mode.update_tunnel_device_endpoint_end(tunnel_info)
             # Get the controller address
             self.controller_private_ip = \
                 self.tunnel_mode.get_controller_private_ip()
@@ -209,29 +265,15 @@ class PymerangDevice:
                        ).start()
             # Return the configuration
             return status_codes_pb2.STATUS_SUCCESS
-        elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
-            # Authentication failed
-            logging.warning('Authentication failed')
-            return
         else:
             # Unknown status code
             logging.warning('Unknown status code: %s' % response.status)
             return
 
-    def unregister_device(self, tunnel_info):
-        # Destroy the tunnel
-        logging.debug('Unregister device')
-        self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
-
-    def update_device_registration(self, stub, tunnel_info):
-        # Destroy the tunnel
-        logging.debug('Update device registration')
-        self.tunnel_mode.destroy_tunnel_device_endpoint(tunnel_info)
-        # Register the device
-        self.register_device(stub)
-
     def run(self):
         logging.info('Client started')
+        # Initialize tunnel state
+        self.tunnel_state = utils.TunnelState(server_ip, self.debug)
         # Establish a gRPC connection to the controller
         if utils.getAddressFamily(self.server_ip) == AF_INET6:
             server_address = '[%s]:%s' % (self.server_ip, self.server_port)
@@ -245,7 +287,11 @@ class PymerangDevice:
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Start registration procedure
             logging.info("-------------- RegisterDevice --------------")
-            self.register_device(stub)
+            if self.register_device(stub) != status_codes_pb2.STATUS_SUCCESS:
+                return
+            logging.info("-------------- Update Tunnel Mode --------------")
+            if self.update_tunnnel_mode(stub) != status_codes_pb2.STATUS_SUCCESS:
+                return
 
 
 # Parse options
