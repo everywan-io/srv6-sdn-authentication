@@ -93,9 +93,10 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         )
         if response != STATUS_SUCCESS:
             return (pymerang_pb2
-                    .RegisterDeviceReply(status=response, vxlan_port=port))
+                    .RegisterDeviceReply(status=response))
         # Set the status code
         reply.status = STATUS_SUCCESS
+        reply.vxlan_port = port
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
