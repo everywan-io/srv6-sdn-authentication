@@ -24,7 +24,7 @@ DEFAULT_PYMERANG_CLIENT_IP = 'fcff:1::1'
 # Souce IP address of the NAT discovery
 DEFAULT_NAT_DISCOVERY_CLIENT_IP = '0.0.0.0'
 # Source port of the NAT discovery
-DEFAULT_NAT_DISCOVERY_CLIENT_PORT = 4789
+DEFAULT_NAT_DISCOVERY_CLIENT_PORT = 0
 # IP address of the NAT discovery
 DEFAULT_NAT_DISCOVERY_SERVER_IP = '2000::1'
 # Port number of the NAT discovery
@@ -33,6 +33,8 @@ DEFAULT_NAT_DISCOVERY_SERVER_PORT = 3478
 DEFAULT_CONFIG_FILE = '/tmp/config.json'
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
+# Source port of the NAT discovery
+DEFAULT_VXLAN_PORT = 4789
 
 
 class PymerangDevice:
@@ -75,7 +77,7 @@ class PymerangDevice:
         # VXLAN enforced port
         self.enforced_vxlan_port = None
         # Token
-        self.token = 'm3nmxSEV9JQMdr7Mj1IUc3absvw1u9Rf4ZNvyz5ScJ4qFBAwwEOqEyUPioWCNIAAWBi0R7q4tdQK0vB4KZ1Jj8tUp8S8EhJ7OfrjwYTGcOm57eLkB3aY9R7epKG5wpbV'       # TODO
+        self.token = 'Pz03knIsvShV3XGu6Rdnker1GO6WUc8cYBKVeAbtDVTfEeDGcVGDBO3MZciQDnsYtsbmrQqsZa2QGrKdVKN5noD0sb0ZzVOS9h7iuNbSvepO1fPhZkOEnh6FMjvKvCtt'       # TODO
         # Tunnel state
         self.tunnel_state = None
 
@@ -105,9 +107,11 @@ class PymerangDevice:
         response = stub.RegisterDevice(request)
         if response.status == status_codes_pb2.STATUS_SUCCESS:
             logging.info('Device authenticated')
-            self.vxlan_port = response.vxlan_port
-            if self.vxlan_port is not None:
-                self.nat_discovery_client_port = self.vxlan_port
+            if self.nat_discovery_client_port == 0:
+                if response.vxlan_port is not None:
+                    self.nat_discovery_client_port = response.vxlan_port
+                else:
+                    self.nat_discovery_client_port = DEFAULT_VXLAN_PORT
             # Return the configuration
             return status_codes_pb2.STATUS_SUCCESS
         elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
