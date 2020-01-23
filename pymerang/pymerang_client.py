@@ -75,7 +75,7 @@ class PymerangDevice:
         # VXLAN enforced port
         self.enforced_vxlan_port = None
         # Token
-        self.token = 'bg0B14VNX4gwdYO7IHxqS2mWrw9xxYqKWskkUmwhRKYlCryGv63xU3o9JhImEGuNS7vAdLnyefQ6XzEoGjHEzcT7GZBff4MbzpUMMIAzmukYeTXUJUPuttLeAmMQdq6T'       # TODO
+        self.token = 'm3nmxSEV9JQMdr7Mj1IUc3absvw1u9Rf4ZNvyz5ScJ4qFBAwwEOqEyUPioWCNIAAWBi0R7q4tdQK0vB4KZ1Jj8tUp8S8EhJ7OfrjwYTGcOm57eLkB3aY9R7epKG5wpbV'       # TODO
         # Tunnel state
         self.tunnel_state = None
 
