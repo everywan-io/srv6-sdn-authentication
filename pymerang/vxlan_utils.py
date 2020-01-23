@@ -219,6 +219,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
 
     def create_tunnel_device_endpoint(self, tunnel_info):
         logging.info('Creating the VXLAN management interface')
+        # Extract VXLAN port
+        vxlan_port = tunnel_info.vxlan_port
         # Extract the tenant ID
         # tenantid = tunnel_info.tenantid           TODO ?
         tenantid = 0
@@ -229,8 +231,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         logging.debug('Attempting to create the VXLAN '
                       'interface %s with VNI %s' % (vxlan_name, vni))
         create_vxlan(device=vxlan_name, vni=vni,
-                     dstport=VXLAN_DSTPORT, srcport_min=VXLAN_DSTPORT,
-                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+                     dstport=vxlan_port, srcport_min=vxlan_port,
+                     srcport_max=vxlan_port+1, udpcsum=ENABLE_UDP_CSUM,
                      udp6zerocsumtx=ENABLE_UDP_CSUM,
                      udp6zerocsumrx=not ENABLE_UDP_CSUM,
                      learning=False)

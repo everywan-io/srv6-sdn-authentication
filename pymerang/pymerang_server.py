@@ -97,6 +97,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         # Set the status code
         reply.status = STATUS_SUCCESS
         reply.vxlan_port = port
+        reply.tunnel_info.vxlan_port = port
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -136,6 +137,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.tunnel_info.device_external_port = \
             tunnel_info.device_external_port
         reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
+        reply.tunnel_info.vxlan_port = tunnel_info.vxlan_port
         # Check if the device exists
         if device_id not in self.controller.devices:
             logging.debug('Unauthorized')
