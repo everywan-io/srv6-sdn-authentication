@@ -290,7 +290,8 @@ class PymerangDevice:
             if self.register_device(stub) != status_codes_pb2.STATUS_SUCCESS:
                 return
             logging.info("-------------- Update Tunnel Mode --------------")
-            if self.update_tunnnel_mode(stub) != status_codes_pb2.STATUS_SUCCESS:
+            if self.update_tunnnel_mode(stub) != \
+                    status_codes_pb2.STATUS_SUCCESS:
                 return
 
 

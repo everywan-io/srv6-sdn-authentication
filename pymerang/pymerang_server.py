@@ -22,6 +22,11 @@ DEFAULT_PYMERANG_SERVER_PORT = 50061
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
 
+# Status codes
+STATUS_SUCCESS = status_codes_pb2.STATUS_SUCCESS
+STATUS_UNAUTHORIZED = status_codes_pb2.STATUS_UNAUTHORIZED
+STATUS_INTERNAL_ERROR = status_codes_pb2.STATUS_INTERNAL_ERROR
+
 
 class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
     """Provides methods that implement functionality of route guide server."""
@@ -86,11 +91,11 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             device_id, features, interfaces,
             mgmtip, auth_data, reply.tunnel_info
         )
-        if response != status_codes_pb2.STATUS_SUCCESS:
+        if response != STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response, vxlan_port=port))
         # Set the status code
-        reply.status = status_codes_pb2.STATUS_SUCCESS
+        reply.status = STATUS_SUCCESS
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -134,17 +139,17 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         if device_id not in self.controller.devices:
             logging.debug('Unauthorized')
             return (pymerang_pb2
-                    .RegisterDeviceReply(status=status_codes_pb2.STATUS_UNAUTHORIZED))
+                    .RegisterDeviceReply(status=STATUS_UNAUTHORIZED))
         # Register the device
         logging.debug('Trying to register the device %s' % device_id)
         response, tunnel_info = self.controller.update_tunnel_mode(
             device_id, interfaces, mgmtip, reply.tunnel_info
         )
-        if response != status_codes_pb2.STATUS_SUCCESS:
+        if response != STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response))
         # Set the status code
-        reply.status = status_codes_pb2.STATUS_SUCCESS
+        reply.status = STATUS_SUCCESS
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -198,11 +203,11 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         response, tunnel_info = self.controller.update_device_registration(
             device_id, None, interfaces, mgmtip, None, reply.tunnel_info
         )
-        if response is not status_codes_pb2.STATUS_SUCCESS:
+        if response is not STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response))
         # Set the status code
-        reply.status = status_codes_pb2.STATUS_SUCCESS
+        reply.status = STATUS_SUCCESS
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -221,12 +226,12 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         response, tunnel_info = self.controller.unregister_device(
             device_id
         )
-        if response is not status_codes_pb2.STATUS_SUCCESS:
+        if response is not STATUS_SUCCESS:
             return (pymerang_pb2
                     .RegisterDeviceReply(status=response))
         # Send the reply
         reply = pymerang_pb2.RegisterDeviceReply(
-            status=status_codes_pb2.STATUS_SUCCESS
+            status=STATUS_SUCCESS
         )
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -284,7 +289,7 @@ class PymerangController:
             device_id, auth_data)
         if not authenticated:
             logging.info('Authentication failed for the device %s' % device_id)
-            return status_codes_pb2.STATUS_UNAUTHORIZED, None, None
+            return STATUS_UNAUTHORIZED, None, None
         # Register the device
         self.devices[device_id] = {
             'features': features,
@@ -302,7 +307,7 @@ class PymerangController:
             port = tunnel_info.device_external_port
         # Success
         logging.debug('New device registered:\n%s' % self.devices[device_id])
-        return status_codes_pb2.STATUS_SUCCESS, tunnel_info, port
+        return STATUS_SUCCESS, tunnel_info, port
 
     # Update tunnel mode
     def update_tunnel_mode(self, device_id, interfaces, mgmtip, tunnel_info):
@@ -323,7 +328,7 @@ class PymerangController:
             logging.info('Trying to create the tunnel for the device %s'
                         % device_id)
             res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
-            if res != status_codes_pb2.STATUS_SUCCESS:
+            if res != STATUS_SUCCESS:
                 logging.warning('Cannot create the tunnel')
                 return
         elif self.devices[device_id]['tunnel_info']['nat_type'] != tunnel_info.nat_type:
@@ -334,7 +339,7 @@ class PymerangController:
             logging.info('Trying to create the tunnel for the device %s'
                         % device_id)
             res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
-            if res != status_codes_pb2.STATUS_SUCCESS:
+            if res != STATUS_SUCCESS:
                 logging.warning('Cannot create the tunnel')
                 return
         else:
@@ -369,7 +374,14 @@ class PymerangController:
         #tunnel_mode = self.device_to_tunnel_mode[device_id]
         #tunnel_mode.update_tunnel_controller_endpoint(device_id, tunnel_info)
         # Update the device information
-        self.devices[device_id]['interfaces'] = interfaces
+        for interface in interfaces.values():
+            name = interface['name']
+            ext_ipv4_addrs = interface['ext_ipv4_addrs']
+            ext_ipv6_addrs = interface['ext_ipv6_addrs']
+            self.devices[device_id]['interfaces'][name]['ext_ipv4_addr'] = ext_ipv4_addrs
+            self.devices[device_id]['interfaces'][name]['ext_ipv6_addr'] = ext_ipv6_addrs
+            
+            
         # Update the management IP address
         if tunnel_mode.get_device_private_ip(device_id) is not None:
             mgmtip = tunnel_mode.get_device_private_ip(device_id)
@@ -377,9 +389,9 @@ class PymerangController:
         # Success
         logging.debug('Updated device registration: %s' %
                       self.devices[device_id])
-        return status_codes_pb2.STATUS_SUCCESS, tunnel_info
+        return STATUS_SUCCESS, tunnel_info
 
-    def unregister_device(self, device_id):
+    def unregister_device(self, device_id, tunnel_info):
         logging.debug('Unregistering the device %s' % device_id)
         # Get the tunnel mode
         tunnel_mode = self.devices[device_id]['tunnel_mode']
@@ -394,7 +406,7 @@ class PymerangController:
         tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
         # Success
         logging.debug('Device unregistered: %s' % device_id)
-        return status_codes_pb2.STATUS_SUCCESS, tunnel_info
+        return STATUS_SUCCESS, tunnel_info
 
     def serve(self):
         # Initialize tunnel state
