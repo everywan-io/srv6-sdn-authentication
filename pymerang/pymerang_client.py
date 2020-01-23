@@ -75,7 +75,7 @@ class PymerangDevice:
         # VXLAN enforced port
         self.enforced_vxlan_port = None
         # Token
-        self.token = 'xxxxxx'       # TODO
+        self.token = 'bg0B14VNX4gwdYO7IHxqS2mWrw9xxYqKWskkUmwhRKYlCryGv63xU3o9JhImEGuNS7vAdLnyefQ6XzEoGjHEzcT7GZBff4MbzpUMMIAzmukYeTXUJUPuttLeAmMQdq6T'       # TODO
         # Tunnel state
         self.tunnel_state = None
 
@@ -106,6 +106,8 @@ class PymerangDevice:
         if response.status == status_codes_pb2.STATUS_SUCCESS:
             logging.info('Device authenticated')
             self.vxlan_port = response.vxlan_port
+            if self.vxlan_port is not None:
+                self.nat_discovery_client_port = self.vxlan_port
             # Return the configuration
             return status_codes_pb2.STATUS_SUCCESS
         elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
