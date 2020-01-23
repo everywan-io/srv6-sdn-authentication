@@ -77,7 +77,7 @@ class PymerangDevice:
         # VXLAN enforced port
         self.enforced_vxlan_port = None
         # Token
-        self.token = 'YLCtyrTv0XRYv3Ze9lcEo2Hjom1GXK8vGbTiRBJp4aOkLjH7AaavPRajc5Dm3CoTDl7099MGTiBTvWBGxaOGYlpVvPFTXCUXAWgD1M45DPTokxEoyhzQqosTjDipB6M9'       # TODO
+        self.token = 'Kf1hRTCWX2I0zcUt8LEqmQpkjvcBdVHW0nHRcGsjNl3NHfDxJkfpZGv0pCkKNfnxVWzMHIAiJ68Sh0kUkrXNgc5AlgoAeki5V7agSJ528Xo2jiAcOXi9gykpNAK7FuGr'       # TODO
         # Tunnel state
         self.tunnel_state = None
 
@@ -110,8 +110,11 @@ class PymerangDevice:
             if self.nat_discovery_client_port == 0:
                 if response.vxlan_port is not None:
                     self.nat_discovery_client_port = response.vxlan_port
+                    self.vxlan_port = response.vxlan_port
                 else:
                     self.nat_discovery_client_port = DEFAULT_VXLAN_PORT
+                    self.vxlan_port = DEFAULT_VXLAN_PORT
+            self.vxlan_port = self.nat_discovery_client_port
             # Return the configuration
             return status_codes_pb2.STATUS_SUCCESS
         elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
@@ -226,6 +229,7 @@ class PymerangDevice:
         if self.external_ip is not None:
             tunnel_info.device_external_ip = self.external_ip
             tunnel_info.device_external_port = self.external_port
+            tunnel_info.vxlan_port = self.vxlan_port
         # Configure the tunnel
         if self.tunnel_mode is None:
             self.tunnel_mode = tunnel_mode
