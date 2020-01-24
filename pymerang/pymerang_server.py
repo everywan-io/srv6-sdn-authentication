@@ -279,7 +279,10 @@ class PymerangController:
 
     # Get the port for the devices
     def get_vxlan_port(self, token):    # TODO pass tenant id or device instead of token
-        return self.controller_state.token_to_tenant[token].get('port')
+        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(token)
+        if tenantid is None:
+            return False, None, None
+        return self.controller_state.tenant_info[tenantid].get('port', DEFAULT_VXLAN_PORT)
 
     # Register a device
     def register_device(self, device_id, features,
