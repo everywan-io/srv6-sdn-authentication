@@ -227,7 +227,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Create the VXLAN interface
-        vxlan_name = '%s-%s-%s' % (self.name, vni, tenantid)
+        vxlan_name = '%s-%s' % (self.name, vni)
         logging.debug('Attempting to create the VXLAN '
                       'interface %s with VNI %s' % (vxlan_name, vni))
         create_vxlan(device=vxlan_name, vni=vni,
