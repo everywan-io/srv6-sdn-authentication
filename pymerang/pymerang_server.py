@@ -22,6 +22,9 @@ DEFAULT_PYMERANG_SERVER_PORT = 50061
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
 
+# Default VXLAN port
+DEFAULT_VXLAN_PORT = 4789
+
 # Status codes
 STATUS_SUCCESS = status_codes_pb2.STATUS_SUCCESS
 STATUS_UNAUTHORIZED = status_codes_pb2.STATUS_UNAUTHORIZED
@@ -268,11 +271,10 @@ class PymerangController:
         logging.info('Authenticating the device %s' % device_id)
         # Get token, tenant ID and VXLAN port
         token = auth_data.token
-        tenant = self.controller_state.token_to_tenant.get(token)
-        if tenant is None:
+        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(token)
+        if tenantid is None:
             return False, None, None
-        tenantid = tenant['tenantid']
-        vxlan_port = tenant['port']
+        vxlan_port = self.controller_state.tenant_info[tenantid].get('port', DEFAULT_VXLAN_PORT)
         return True, tenantid, vxlan_port
 
     # Get the port for the devices
