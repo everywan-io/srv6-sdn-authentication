@@ -257,11 +257,11 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         controller_vtep_mac = tunnel_info.controller_vtep_mac
         # Extract the tenant ID
         # tenantid = tunnel_info.tenantid           TODO ?
-        tenantid = 0
+        #tenantid = 0
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Add a private address to the interface
-        vxlan_name = '%s-%s-%s' % (self.name, vni, tenantid)
+        vxlan_name = '%s-%s-%s' % (self.name, vni)
         logging.debug('Attempting to assign the IP address %s/%s '
                       'to the VXLAN management interface %s'
                       % (device_vtep_ip, vtep_mask, vxlan_name))
@@ -301,11 +301,11 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         device_vtep_mac = tunnel_info.device_vtep_mac
         # Extract the tenant ID
         # tenantid = tunnel_info.tenantid       # TODO ?
-        tenantid = 0
+        #tenantid = 0
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Create the VXLAN interface
-        vxlan_name = '%s-%s-%s' % (self.name, vni, tenantid)
+        vxlan_name = '%s-%s' % (self.name, vni)
         if tenantid not in self.initiated:
             logging.debug('First VXLAN tunnel, attempting to create '
                           'the VXLAN interface %s'

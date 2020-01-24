@@ -389,9 +389,9 @@ class PymerangController:
             
             
         # Update the management IP address
-        if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
-        self.devices[device_id]['mgmtip'] = mgmtip
+        #if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
+        #    mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
+        #self.devices[device_id]['mgmtip'] = mgmtip
         # Success
         logging.debug('Updated device registration: %s' %
                       self.devices[device_id])
