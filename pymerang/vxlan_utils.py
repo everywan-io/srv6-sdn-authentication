@@ -261,7 +261,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Add a private address to the interface
-        vxlan_name = '%s-%s-%s' % (self.name, vni)
+        vxlan_name = '%s-%s' % (self.name, vni)
         logging.debug('Attempting to assign the IP address %s/%s '
                       'to the VXLAN management interface %s'
                       % (device_vtep_ip, vtep_mask, vxlan_name))
