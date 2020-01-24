@@ -138,18 +138,22 @@ class TunnelMode:
         raise NotImplementedError
 
     # Return the private IPv6 of the device
-    def get_device_private_ipv6(self, device_id):
-        return self.device_to_ipv6_address.get(device_id)
+    def get_device_private_ipv6(self, tenantid, device_id):
+        if tenantid not in self.device_to_ipv6_address:
+            return None
+        return self.device_to_ipv6_address[tenantid].get(device_id)
 
     # Return the private IPv4 of the device
-    def get_device_private_ipv4(self, device_id):
-        return self.device_to_ipv4_address.get(device_id)
+    def get_device_private_ipv4(self, tenantid, device_id):
+        if tenantid not in self.device_to_ipv4_address:
+            return None
+        return self.device_to_ipv4_address[tenantid].get(device_id)
 
     # Return the private IP of the device
-    def get_device_private_ip(self, device_id):
-        addr = self.get_device_private_ipv4(device_id)
+    def get_device_private_ip(self, tenantid, device_id):
+        addr = self.get_device_private_ipv4(tenantid, device_id)
         if addr is None:
-            addr = self.get_device_private_ipv6(device_id)
+            addr = self.get_device_private_ipv6(tenantid, device_id)
         return addr
 
     # Return the public IP of the controller
