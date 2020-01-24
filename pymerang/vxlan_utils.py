@@ -315,13 +315,13 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
             self.init_tenantid(tenantid)
             # Generate private addresses for the controller VTEP
             controller_vtep_ipv6 = self.get_new_ipv6_address(
-                0, tenantid).split('/')[0]
+                0, 0).split('/')[0]
             vtep_mask_ipv6 = int(self.get_new_ipv6_address(
-                0, tenantid).split('/')[1])
+                0, 0).split('/')[1])
             controller_vtep_ipv4 = self.get_new_ipv4_address(
-                0, tenantid).split('/')[0]
+                0, 0).split('/')[0]
             vtep_mask_ipv4 = int(self.get_new_ipv4_address(
-                0, tenantid).split('/')[1])
+                0, 0).split('/')[1])
             self.controller_private_ipv4 = controller_vtep_ipv4
             self.controller_private_ipv6 = controller_vtep_ipv6
             # Create the VXLAN interface
@@ -352,18 +352,18 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         family = tunnel_utils.getAddressFamily(tunnel_info.device_external_ip)
         if family == socket.AF_INET6:
             controller_vtep_ip = self.get_new_ipv6_address(
-                0, tenantid).split('/')[0]
+                0, 0).split('/')[0]
             device_vtep_ip = self.get_new_ipv6_address(
-                device_id, tenantid).split('/')[0]
+                device_id, 0).split('/')[0]
             vtep_mask = int(self.get_new_ipv6_address(
-                device_id, tenantid).split('/')[1])
+                device_id, 0).split('/')[1])
         elif family == socket.AF_INET:
             controller_vtep_ip = self.get_new_ipv4_address(
-                0, tenantid).split('/')[0]
+                0, 0).split('/')[0]
             device_vtep_ip = self.get_new_ipv4_address(
-                device_id, tenantid).split('/')[0]
+                device_id, 0).split('/')[0]
             vtep_mask = int(self.get_new_ipv4_address(
-                device_id, tenantid).split('/')[1])
+                device_id, 0).split('/')[1])
         else:
             logging.error('Invalid family address: %s' %
                           tunnel_info.device_external_ip)
