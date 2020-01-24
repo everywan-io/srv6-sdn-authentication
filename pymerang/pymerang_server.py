@@ -71,8 +71,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 'ipv6_addrs': ipv6_addrs,
                 'ipv4_subnets': list(),
                 'ipv6_subnets': list(),
-                'ext_ipv4_addr': list(),
-                'ext_ipv6_addr': list(),
+                'ext_ipv4_addrs': list(),
+                'ext_ipv6_addrs': list(),
                 'type': utils.InterfaceType.UNKNOWN,
             }
         # Extract tunnel information
@@ -186,8 +186,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 'ipv6_addrs': ipv6_addrs,
                 'ipv4_subnets': list(),
                 'ipv6_subnets': list(),
-                'ext_ipv4_addr': list(),
-                'ext_ipv6_addr': list(),
+                'ext_ipv4_addrs': list(),
+                'ext_ipv6_addrs': list(),
                 'type': utils.InterfaceType.UNKNOWN,
             }
         # Extract tunnel information
@@ -379,8 +379,8 @@ class PymerangController:
             name = interface['name']
             ext_ipv4_addrs = interface['ext_ipv4_addrs']
             ext_ipv6_addrs = interface['ext_ipv6_addrs']
-            self.devices[device_id]['interfaces'][name]['ext_ipv4_addr'] = ext_ipv4_addrs
-            self.devices[device_id]['interfaces'][name]['ext_ipv6_addr'] = ext_ipv6_addrs
+            self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
+            self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
             
             
         # Update the management IP address
