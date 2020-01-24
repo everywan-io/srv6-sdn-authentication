@@ -354,12 +354,12 @@ class PymerangController:
         self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         self.devices[device_id]['tunnel_info'] = tunnel_info
         
-            
+        tenantid = self.devices[device_id]['tenantid']
         
         
         # If a private IP address is present, use it as mgmt address
-        if tunnel_mode.get_device_private_ip(device_id) is not None:
-            mgmtip = tunnel_mode.get_device_private_ip(device_id)
+        if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
+            mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
             self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode
@@ -389,8 +389,8 @@ class PymerangController:
             
             
         # Update the management IP address
-        if tunnel_mode.get_device_private_ip(device_id) is not None:
-            mgmtip = tunnel_mode.get_device_private_ip(device_id)
+        if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
+            mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
         self.devices[device_id]['mgmtip'] = mgmtip
         # Success
         logging.debug('Updated device registration: %s' %
