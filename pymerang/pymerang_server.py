@@ -358,8 +358,8 @@ class PymerangController:
         
         
         # If a private IP address is present, use it as mgmt address
-        if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
+        if tunnel_mode.get_device_private_ip(0, device_id) is not None:
+            mgmtip = tunnel_mode.get_device_private_ip(0, device_id)
             self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode
