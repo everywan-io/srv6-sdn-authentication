@@ -37,6 +37,8 @@ DEFAULT_CONFIG_FILE = '/tmp/config.json'
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
 # Source port of the NAT discovery
 DEFAULT_VXLAN_PORT = 4789
+# File containing the token
+DEFAULT_TOKEN_FILE = 'token'
 
 
 class PymerangDevice:
@@ -44,7 +46,7 @@ class PymerangDevice:
     def __init__(self, server_ip, server_port, nat_discovery_server_ip,
                  nat_discovery_server_port, nat_discovery_client_ip,
                  nat_discovery_client_port, config_file,
-                 keep_alive_interval=30, debug=False):
+                 token_file, keep_alive_interval=30, debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -78,8 +80,12 @@ class PymerangDevice:
         self.keep_alive_interval = keep_alive_interval
         # VXLAN enforced port
         self.enforced_vxlan_port = None
-        # Token
-        self.token = 'Kf1hRTCWX2I0zcUt8LEqmQpkjvcBdVHW0nHRcGsjNl3NHfDxJkfpZGv0pCkKNfnxVWzMHIAiJ68Sh0kUkrXNgc5AlgoAeki5V7agSJ528Xo2jiAcOXi9gykpNAK7FuGr'       # TODO
+        # Read the token from the token file
+        with open(token_file, 'r') as token_file:
+            # Save the token
+            self.token = token_file.read()
+            # Remove trailing new line character
+            self.token = self.token.rstrip('\n')
         # Tunnel state
         self.tunnel_state = None
 
@@ -171,8 +177,8 @@ class PymerangDevice:
         for ifname, ifinfo in interfaces.items():
             interface = request.interfaces.add()
             interface.name = ifname
-            interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
-            interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+            #interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
+            #interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
             if ifname != 'lo':
                 for addr in ifinfo['ipv4_addrs']:
                     # Run the stun test to discover the
@@ -370,6 +376,12 @@ def parse_arguments():
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
     )
+    # Interval between two consecutive keep alive messages
+    parser.add_argument(
+        '-t', '--token-file', dest='token_file',
+        default=DEFAULT_TOKEN_FILE,
+        help='File containing the token used for the authentication'
+    )
     # Parse input parameters
     args = parser.parse_args()
     # Return the arguments
@@ -404,9 +416,11 @@ if __name__ == '__main__':
     config_file = args.config_file
     # Interval between two consecutive keep alive messages
     keep_alive_interval = args.keep_alive_interval
+    # File containing the token used for the authentication
+    token_file = args.token_file
     # Start client
     client = PymerangDevice(server_ip, server_port, nat_discovery_server_ip,
                             nat_discovery_server_port, nat_discovery_client_ip,
                             nat_discovery_client_port, config_file,
-                            keep_alive_interval)
+                            token_file, keep_alive_interval)
     client.run()

@@ -306,7 +306,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         vni = MGMT_VNI
         # Create the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
-        if tenantid not in self.initiated:
+        if 0 not in self.initiated:
             logging.debug('First VXLAN tunnel, attempting to create '
                           'the VXLAN interface %s'
                           % vxlan_name)
