@@ -415,3 +415,23 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         if res == status_codes_pb2.STATUS_SUCCESS:
             res = self.create_tunnel_controller_endpoint(tunnel_info)
         return res
+
+    # Return the private IPv6 of the device
+    def get_device_mgmtipv6(self, tenantid, device_id):
+        if tenantid not in self.device_to_mgmt_ipv6:
+            return None
+        return self.device_to_mgmt_ipv6[tenantid].get(device_id)
+
+    # Return the private IPv4 of the device
+    def get_device_mgmtipv4(self, tenantid, device_id):
+        if tenantid not in self.device_to_mgmt_ipv4:
+            return None
+        return self.device_to_mgmt_ipv4[tenantid].get(device_id)
+
+    # Return the private IP of the device
+    def get_device_mgmtip(self, tenantid, device_id):
+        tenantid = 0
+        addr = self.get_device_mgmtipv4(tenantid, device_id)
+        if addr is None:
+            addr = self.get_device_mgmtipv6(tenantid, device_id)
+        return addr

@@ -265,3 +265,24 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         self.release_ipv6_address(device_id)
         # Success
         return status_codes_pb2.STATUS_SUCCESS
+
+    # Return the private IPv6 of the device
+    def get_device_mgmtipv6(self, tenantid, device_id):
+        net = self.device_to_ipv6_net.get(device_id)
+        if net is not None:
+            return IPv6Network(net)[2].__str__().split('/')[0]
+        return None
+
+    # Return the private IPv4 of the device
+    def get_device_mgmtipv4(self, tenantid, device_id):
+        net = self.device_to_ipv4_net.get(device_id)
+        if net is not None:
+            return IPv4Network(net)[2].__str__().split('/')[0]
+        return None
+
+    # Return the private IP of the device
+    def get_device_mgmtip(self, tenantid, device_id):
+        addr = self.get_device_mgmtipv4(tenantid, device_id)
+        if addr is None:
+            addr = self.get_device_mgmtipv6(tenantid, device_id)
+        return addr

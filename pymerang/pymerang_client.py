@@ -159,13 +159,18 @@ class PymerangDevice:
         with grpc.insecure_channel(server_address) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
+            # Prepare the registration message
+            request = pymerang_pb2.RegisterDeviceRequest()
+            # Set the device ID in the tunnel info
+            tunnel_info = request.tunnel_info
+            tunnel_info.device_id = self.device_id
             # Start registration procedure
             logging.info("-------------- Update Tunnel Mode --------------")
             if self.tunnel_mode is not None:
                 # Destroy the tunnel
                 logging.info('Destroying the tunnel for the device')
                 self.tunnel_mode.destroy_tunnel_device_endpoint(
-                    tunnel_info=None)
+                    tunnel_info=tunnel_info)
                 self.tunnel_mode = None
             # Run the stun test to discover the NAT type
             logging.info('Running STUN test to discover the NAT type\n'
@@ -200,8 +205,6 @@ class PymerangDevice:
                 logging.error('No tunnel mode supporting the NAT type')
                 return
             logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
-            # Prepare the registration message
-            request = pymerang_pb2.RegisterDeviceRequest()
             # Set the device ID
             request.device.id = self.device_id
             # Set the interfaces
