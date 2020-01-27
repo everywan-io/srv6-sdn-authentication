@@ -164,7 +164,7 @@ def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
                 if max_lost > 0 and current_lost >= max_lost:
                     # Too many lost keep alive messages
                     if callback is not None:
-                        logging.info('Too many lost keep alive messages'
+                        logging.info('Too many lost keep alive messages\n'
                                      'Trying to reconnect to the controller')
                         return callback()
                     return None

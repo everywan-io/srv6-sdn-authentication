@@ -271,15 +271,18 @@ class PymerangController:
         logging.info('Authenticating the device %s' % device_id)
         # Get token, tenant ID and VXLAN port
         token = auth_data.token
-        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(token)
+        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(
+            token)
         if tenantid is None:
             return False, None, None
-        vxlan_port = self.controller_state.tenant_info[tenantid].get('port', DEFAULT_VXLAN_PORT)
+        vxlan_port = self.controller_state.tenant_info[tenantid].get(
+            'port', DEFAULT_VXLAN_PORT)
         return True, tenantid, vxlan_port
 
     # Get the port for the devices
     def get_vxlan_port(self, token):    # TODO pass tenant id or device instead of token
-        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(token)
+        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(
+            token)
         if tenantid is None:
             return False, None, None
         return self.controller_state.tenant_info[tenantid].get('port', DEFAULT_VXLAN_PORT)
@@ -320,46 +323,34 @@ class PymerangController:
     # Update tunnel mode
     def update_tunnel_mode(self, device_id, interfaces, mgmtip, tunnel_info):
         logging.info('Updating the tunnel for the device %s' % device_id)
+        # If a tunnel already exists, we need to destroy it
+        # before creating the new tunnel
+        old_tunnel_mode = self.devices[device_id]['tunnel_mode']
+        if old_tunnel_mode is not None:
+            old_tunnel_mode = utils.REVERSE_TUNNEL_MODES[old_tunnel_mode]
+            old_tunnel_mode = self.tunnel_state.tunnel_modes[old_tunnel_mode]
+            old_tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
+            self.devices[device_id]['tunnel_mode'] = None
         # Get the tunnel mode requested by the device
         tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
-        # If a tunnel already exists, we need to destroy it or update it
-        if self.devices[device_id]['tunnel_mode'] is None:
-            # Create the tunnel
-            logging.info('Trying to create the tunnel for the device %s'
-                         % device_id)
-            res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
-            if res != STATUS_SUCCESS:
-                logging.warning('Cannot create the tunnel')
-                return
-        elif self.devices[device_id]['tunnel_mode'] != tunnel_info.tunnel_mode:
-            # The tunnel already exists and the NAT type has changed
-            logging.debug(
-                'Trying to destroy the tunnel for the device %s' % device_id)
-            # Destroy the current tunnel
-            old_tunnel_mode = self.tunnel_state.tunnel_modes[self.devices[device_id]['tunnel_mode']]
-            old_tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
-            # Create a new tunnel
-            logging.info('Trying to create the tunnel for the device %s'
-                         % device_id)
-            res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
-            if res != STATUS_SUCCESS:
-                logging.warning('Cannot create the tunnel')
-                return
-        else:
-            # The tunnel already exists and the NAT type has not changed
-            # Update the tunnel
-            tunnel_mode.update_tunnel_controller_endpoint(tunnel_info)
-        
-        self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
-        self.devices[device_id]['tunnel_info'] = tunnel_info
-        
+        # Get the tenant ID
         tenantid = self.devices[device_id]['tenantid']
-        
-        
+        tunnel_info.tenantid = tenantid
+        # Create the tunnel
+        logging.info('Trying to create the tunnel for the device %s'
+                     % device_id)
+        res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
+        if res != STATUS_SUCCESS:
+            logging.warning('Cannot create the tunnel')
+            return
+        # Store tunnel mode
+        self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
+        # Store tunnel info
+        self.devices[device_id]['tunnel_info'] = tunnel_info
         # If a private IP address is present, use it as mgmt address
-        if tunnel_mode.get_device_private_ip(0, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_private_ip(0, device_id)
+        if tunnel_mode.get_device_mgmtip(tenantid, device_id) is not None:
+            mgmtip = tunnel_mode.get_device_mgmtip(tenantid, device_id)
             self.devices[device_id]['mgmtip'] = mgmtip.split('/')[0]
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode
@@ -370,11 +361,6 @@ class PymerangController:
                 mgmtip, self.keep_alive_interval, 3), daemon=False).start()
         # Set the tenant ID
         #tunnel_info.tenantid = tenantid
-        
-        
-        
-        
-        
         # Update the tunnel
         #logging.debug('Trying to update the tunnel for the device %s' % device_id)
         #tunnel_mode = self.device_to_tunnel_mode[device_id]
@@ -386,10 +372,8 @@ class PymerangController:
             ext_ipv6_addrs = interface['ext_ipv6_addrs']
             self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
-            
-            
         # Update the management IP address
-        #if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
+        # if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
         #    mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
         #self.devices[device_id]['mgmtip'] = mgmtip
         # Success
