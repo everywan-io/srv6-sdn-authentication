@@ -387,6 +387,8 @@ class PymerangController:
         logging.debug('Unregistering the device %s' % device_id)
         # Get the tunnel mode
         tunnel_mode = self.devices[device_id]['tunnel_mode']
+        tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
         # Get the tunnel info
         tunnel_info = self.devices[device_id]['tunnel_info']
         # Get the tenant ID of the devices
