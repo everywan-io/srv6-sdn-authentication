@@ -312,6 +312,8 @@ class PymerangController:
             'nat_type': None,
             'status': utils.DeviceStatus.CONNECTED
         }
+        # Update mapping tenant ID to devices
+        self.controller_state.tenantid_to_devices[tenantid].add(device_id)
         # Set the port
         port = self.get_vxlan_port(auth_data.token)
         if port is None:
@@ -387,6 +389,10 @@ class PymerangController:
         tunnel_mode = self.devices[device_id]['tunnel_mode']
         # Get the tunnel info
         tunnel_info = self.devices[device_id]['tunnel_info']
+        # Get the tenant ID of the devices
+        tenantid = self.devices[device_id]['tenantid']
+        # Update mapping tenant ID to devices
+        self.controller_state.tenantid_to_devices[tenantid].remove(device_id)
         # Remove the device from the data structures
         del self.device_to_tunnel_mode[device_id]
         del self.devices[device_id]
