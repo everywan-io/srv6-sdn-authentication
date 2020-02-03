@@ -14,6 +14,8 @@ from pymerang import tunnel_utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
+# SRv6 dependencies
+from srv6_sdn_controller_state import srv6_sdn_controller_state
 
 # Loopback IP address of the controller
 DEFAULT_PYMERANG_SERVER_IP = '::'
@@ -52,7 +54,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         for feature in request.device.features:
             name = feature.name
             port = feature.port
-            features[name] = {name: name, port: port}
+            features[name] = {'name': name, 'port': port}
         # Data needed for the device authentication
         auth_data = request.auth_data
         # Interfaces of the devices
@@ -63,9 +65,9 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             # MAC address
             mac_addr = interface.mac_addr
             # IPv4 addresses
-            ipv4_addrs = interface.ipv4_addrs
+            ipv4_addrs = list(interface.ipv4_addrs)
             # IPv6 addresses
-            ipv6_addrs = interface.ipv6_addrs
+            ipv6_addrs = list(interface.ipv6_addrs)
             # Save the interface
             interfaces[ifname] = {
                 'name': ifname,
@@ -121,9 +123,9 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             # Interface name
             ifname = interface.name
             # IPv4 addresses
-            ipv4_addrs = interface.ext_ipv4_addrs
+            ipv4_addrs = list(interface.ext_ipv4_addrs)
             # IPv6 addresses
-            ipv6_addrs = interface.ext_ipv6_addrs
+            ipv6_addrs = list(interface.ext_ipv6_addrs)
             # Save the interface
             interfaces[ifname] = {
                 'name': ifname,
@@ -178,9 +180,9 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             # MAC address
             mac_addr = interface.mac_addr
             # IPv4 addresses
-            ipv4_addrs = interface.ipv4_addrs
+            ipv4_addrs = list(interface.ipv4_addrs)
             # IPv6 addresses
-            ipv6_addrs = interface.ipv6_addrs
+            ipv6_addrs = list(interface.ipv6_addrs)
             # Save the interface
             interfaces[ifname] = {
                 'name': ifname,
@@ -314,6 +316,10 @@ class PymerangController:
         }
         # Update mapping tenant ID to devices
         self.controller_state.tenantid_to_devices[tenantid].add(device_id)
+        
+        # Update controller state
+        srv6_sdn_controller_state.register_device(device_id, features, interfaces, mgmtip, tenantid)
+        
         # Set the port
         port = self.get_vxlan_port(auth_data.token)
         if port is None:
@@ -398,6 +404,9 @@ class PymerangController:
         # Remove the device from the data structures
         del self.device_to_tunnel_mode[device_id]
         del self.devices[device_id]
+        
+        srv6_sdn_controller_state.unregister_device(device_id)
+        
         # Destroy the tunnel
         logging.debug(
             'Trying to destroy the tunnel for the device %s' % device_id)
