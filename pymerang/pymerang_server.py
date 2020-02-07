@@ -380,6 +380,12 @@ class PymerangController:
             ext_ipv6_addrs = interface['ext_ipv6_addrs']
             self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
+
+
+        # Update controller state
+        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces)
+
+
         # Update the management IP address
         # if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
         #    mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
