@@ -73,7 +73,9 @@ message RegisterDeviceRequest {
   Device device = 1;
   AuthData auth_data = 2;
   TunnelInfo tunnel_info = 3;
-  repeated Interface interfaces = 4;
+  TunnelInfo tunnel_mode = 4;
+  TunnelInfo nat_type = 5;
+  repeated Interface interfaces = 6;
 }
 
 /* Reports the outcome of a gRPC request command */

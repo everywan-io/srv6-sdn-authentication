@@ -273,6 +273,10 @@ class PymerangDevice:
                                                    e))
             # Se the tunnel mode
             self.tunnel_mode = tunnel_mode
+            # Set the tunnel mode
+            request.tunnel_mode = self.tunnel_mode.name
+            # Set the NAT type
+            request.nat_type = self.nat_type
             # Set the tunnel info
             tunnel_info = request.tunnel_info
             tunnel_info.tunnel_mode = utils.TUNNEL_MODES[tunnel_mode.name]

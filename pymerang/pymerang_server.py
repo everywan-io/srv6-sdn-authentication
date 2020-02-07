@@ -134,6 +134,10 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             }
         # Extract tunnel information
         tunnel_info = request.tunnel_info
+        # Extract tunnel mode
+        tunnel_mode = request.tunnel_mode
+        # Extract NAT type
+        nat_type = request.nat_type
         # Prepare the response message
         reply = pymerang_pb2.RegisterDeviceReply()
         reply.tunnel_info.device_id = tunnel_info.device_id
@@ -151,7 +155,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         # Register the device
         logging.debug('Trying to register the device %s' % device_id)
         response, tunnel_info = self.controller.update_tunnel_mode(
-            device_id, interfaces, mgmtip, reply.tunnel_info
+            device_id, interfaces, mgmtip, reply.tunnel_info,
+            tunnel_mode, nat_type
         )
         if response != STATUS_SUCCESS:
             return (pymerang_pb2
@@ -329,7 +334,8 @@ class PymerangController:
         return STATUS_SUCCESS, tunnel_info, port
 
     # Update tunnel mode
-    def update_tunnel_mode(self, device_id, interfaces, mgmtip, tunnel_info):
+    def update_tunnel_mode(self, device_id, interfaces, mgmtip,
+                           tunnel_info, tunnel_mode, nat_type):
         logging.info('Updating the tunnel for the device %s' % device_id)
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
@@ -381,9 +387,8 @@ class PymerangController:
             self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
-
         # Update controller state
-        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces)
+        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces, tunnel_mode, nat_type)
 
 
         # Update the management IP address
