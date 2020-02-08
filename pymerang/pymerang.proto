@@ -73,8 +73,8 @@ message RegisterDeviceRequest {
   Device device = 1;
   AuthData auth_data = 2;
   TunnelInfo tunnel_info = 3;
-  TunnelInfo tunnel_mode = 4;
-  TunnelInfo nat_type = 5;
+  string tunnel_mode = 4;
+  string nat_type = 5;
   repeated Interface interfaces = 6;
 }
 
