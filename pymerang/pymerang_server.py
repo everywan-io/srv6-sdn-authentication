@@ -337,6 +337,9 @@ class PymerangController:
     def update_tunnel_mode(self, device_id, interfaces, mgmtip,
                            tunnel_info, tunnel_mode, nat_type):
         logging.info('Updating the tunnel for the device %s' % device_id)
+        
+        tunnel_name = tunnel_mode
+        
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
         old_tunnel_mode = self.devices[device_id]['tunnel_mode']
@@ -388,7 +391,7 @@ class PymerangController:
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
         # Update controller state
-        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces, tunnel_mode, nat_type)
+        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces, tunnel_name, nat_type)
 
 
         # Update the management IP address
