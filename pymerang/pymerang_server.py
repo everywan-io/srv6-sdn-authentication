@@ -391,7 +391,7 @@ class PymerangController:
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
         # Update controller state
-        srv6_sdn_controller_state.update_tunnel_mode(device_id, interfaces, tunnel_name, nat_type)
+        srv6_sdn_controller_state.update_tunnel_mode(device_id, mgmtip, interfaces, tunnel_name, nat_type)
 
 
         # Update the management IP address
