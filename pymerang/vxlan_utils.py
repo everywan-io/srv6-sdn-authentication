@@ -218,7 +218,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         port = tunnel_info.vxlan_port
         # Extract the tenant ID
         #tenantid = tunnel_info.tenantid
-        tenantid = 0
+        tenantid = '0'
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Create the VXLAN interface
@@ -343,7 +343,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         device_id = tunnel_info.device_id
         # Extract the tenant ID
         #tenantid = tunnel_info.tenantid
-        tenantid = 0
+        tenantid = '0'
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Name of the VXLAN interface
@@ -430,7 +430,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
 
     # Return the private IP of the device
     def get_device_mgmtip(self, tenantid, device_id):
-        tenantid = 0
+        tenantid = '0'
         addr = self.get_device_mgmtipv4(tenantid, device_id)
         if addr is None:
             addr = self.get_device_mgmtipv6(tenantid, device_id)

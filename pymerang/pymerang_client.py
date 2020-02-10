@@ -271,7 +271,7 @@ class PymerangDevice:
                                                    self.nat_discovery_server_ip,
                                                    self.nat_discovery_server_port,
                                                    e))
-            # Se the tunnel mode
+            # Set the tunnel mode
             self.tunnel_mode = tunnel_mode
             # Set the tunnel mode
             request.tunnel_mode = self.tunnel_mode.name

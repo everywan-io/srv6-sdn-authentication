@@ -54,7 +54,7 @@ message TunnelInfo {
     uint32 vni = 8;
     string device_vtep_mac = 9;
     string controller_vtep_mac = 10;
-    uint32 tenantid = 11;
+    string tenantid = 11;
     uint32 vxlan_port = 12;
 }
 
