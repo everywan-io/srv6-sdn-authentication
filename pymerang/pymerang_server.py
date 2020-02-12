@@ -375,7 +375,7 @@ class PymerangController:
         # if required for the tunnel mode
         if tunnel_mode.require_keep_alive_messages:
             Thread(target=utils.start_keep_alive_icmp, args=(
-                mgmtip , self.keep_alive_interval, 3), daemon=False).start()
+                mgmtip, self.keep_alive_interval, 3), daemon=False).start()
         # Set the tenant ID
         #tunnel_info.tenantid = tenantid
         # Update the tunnel
