@@ -367,15 +367,15 @@ class PymerangController:
         self.devices[device_id]['tunnel_info'] = tunnel_info
         # If a private IP address is present, use it as mgmt address
         if tunnel_mode.get_device_mgmtip(tenantid, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_mgmtip(tenantid, device_id)
-            self.devices[device_id]['mgmtip'] = mgmtip.split('/')[0]
+            mgmtip = tunnel_mode.get_device_mgmtip(tenantid, device_id).split('/')[0]
+            self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode
         # Send a keep-alive messages to keep the tunnel opened,
         # if required for the tunnel mode
         if tunnel_mode.require_keep_alive_messages:
             Thread(target=utils.start_keep_alive_icmp, args=(
-                mgmtip, self.keep_alive_interval, 3), daemon=False).start()
+                mgmtip , self.keep_alive_interval, 3), daemon=False).start()
         # Set the tenant ID
         #tunnel_info.tenantid = tenantid
         # Update the tunnel
