@@ -278,21 +278,10 @@ class PymerangController:
         logging.info('Authenticating the device %s' % device_id)
         # Get token, tenant ID and VXLAN port
         token = auth_data.token
-        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(
-            token)
-        if tenantid is None:
-            return False, None, None
-        vxlan_port = self.controller_state.tenant_info[tenantid].get(
-            'port', DEFAULT_VXLAN_PORT)
-        return True, tenantid, vxlan_port
-
-    # Get the port for the devices
-    def get_vxlan_port(self, token):    # TODO pass tenant id or device instead of token
-        tenantid = self.controller_state.tenantid_allocator.token_to_tenantid.get(
-            token)
-        if tenantid is None:
-            return False, None, None
-        return self.controller_state.tenant_info[tenantid].get('port', DEFAULT_VXLAN_PORT)
+        authenticated, tenantid = srv6_sdn_controller_state.authenticate_device(token)
+        if not authenticated:
+            return False, None
+        return True, tenantid
 
     # Register a device
     def register_device(self, device_id, features,
@@ -303,7 +292,7 @@ class PymerangController:
         if device_id in self.devices:
             logging.warning('The device %s is already registered' % device_id)
         # Device authentication
-        authenticated, tenantid, vxlan_port = self.authenticate_device(
+        authenticated, tenantid = self.authenticate_device(
             device_id, auth_data)
         if not authenticated:
             logging.info('Authentication failed for the device %s' % device_id)
@@ -319,14 +308,15 @@ class PymerangController:
             'nat_type': None,
             'status': utils.DeviceStatus.CONNECTED
         }
-        # Update mapping tenant ID to devices
-        self.controller_state.tenantid_to_devices[tenantid].add(device_id)
-        
         # Update controller state
         srv6_sdn_controller_state.register_device(device_id, features, interfaces, mgmtip, tenantid)
-        
+        # Get the tenant configuration
+        config = srv6_sdn_controller_state.get_tenant_config(tenantid)
+        if config is None:
+            logging.error('Tenant not found or error while connecting to the db')
+            return STATUS_INTERNAL_ERROR, None, None
         # Set the port
-        port = self.get_vxlan_port(auth_data.token)
+        port = config.get('port', DEFAULT_VXLAN_PORT)
         if port is None:
             port = tunnel_info.device_external_port
         # Success
@@ -413,8 +403,6 @@ class PymerangController:
         tunnel_info = self.devices[device_id]['tunnel_info']
         # Get the tenant ID of the devices
         tenantid = self.devices[device_id]['tenantid']
-        # Update mapping tenant ID to devices
-        self.controller_state.tenantid_to_devices[tenantid].remove(device_id)
         # Remove the device from the data structures
         del self.device_to_tunnel_mode[device_id]
         del self.devices[device_id]
