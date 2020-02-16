@@ -324,7 +324,7 @@ class PymerangDevice:
     def run(self):
         logging.info('Client started')
         # Initialize tunnel state
-        self.tunnel_state = utils.TunnelState(server_ip, self.debug)
+        self.tunnel_state = utils.TunnelState(self.server_ip, self.debug)
         # Register the device
         logging.info("-------------- RegisterDevice --------------")
         if self.register_device() != status_codes_pb2.STATUS_SUCCESS:
