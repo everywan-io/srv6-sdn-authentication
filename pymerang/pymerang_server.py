@@ -316,7 +316,7 @@ class PymerangController:
             logging.error('Tenant not found or error while connecting to the db')
             return STATUS_INTERNAL_ERROR, None, None
         # Set the port
-        port = config.get('port', DEFAULT_VXLAN_PORT)
+        port = config.get('vxlan_port', DEFAULT_VXLAN_PORT)
         if port is None:
             port = tunnel_info.device_external_port
         # Success
