@@ -305,7 +305,10 @@ class PymerangDevice:
                 # Get the controller address
                 self.controller_mgmtip = \
                     self.tunnel_mode.get_controller_mgmtip()
-                # Send a keep-alive messages to keep the tunnel opened, if required
+                if self.controller_mgmtip is None:
+                    self.controller_mgmtip = self.server_ip
+                # Send a keep-alive messages to keep the tunnel opened,
+                # if required
                 if self.tunnel_mode.require_keep_alive_messages:
                     Thread(target=utils.start_keep_alive_icmp,
                            args=(self.controller_mgmtip,
@@ -326,12 +329,10 @@ class PymerangDevice:
         # Initialize tunnel state
         self.tunnel_state = utils.TunnelState(self.server_ip, self.debug)
         # Register the device
-        logging.info("-------------- RegisterDevice --------------")
         if self.register_device() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in device registration')
             return
         # Update tunnel mode
-        logging.info("-------------- Update Tunnel Mode --------------")
         if self.update_tunnel_mode() != \
                 status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in update tunnel mode')

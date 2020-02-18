@@ -19,7 +19,7 @@ class NoTunnel(tunnel_utils.TunnelMode):
             logging.basicConfig(level=logging.INFO)
         # Keep alive not required if we use direct communication
         # (i.e. no tunnel)
-        req_keep_alive_messages = False
+        req_keep_alive_messages = True
         # NAT types supported by the VXLAN tunnel mode
         supported_nat_types = [
             pynat.OPEN
