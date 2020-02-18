@@ -365,7 +365,9 @@ class PymerangController:
         # if required for the tunnel mode
         if tunnel_mode.require_keep_alive_messages:
             Thread(target=utils.start_keep_alive_icmp, args=(
-                mgmtip, self.keep_alive_interval, 3), daemon=False).start()
+                mgmtip, self.keep_alive_interval,
+                lambda device_id: self.device_disconnected(device_id, None)),
+                   daemon=False).start()
         # Set the tenant ID
         #tunnel_info.tenantid = tenantid
         # Update the tunnel
@@ -407,8 +409,43 @@ class PymerangController:
         del self.device_to_tunnel_mode[device_id]
         del self.devices[device_id]
         
-        srv6_sdn_controller_state.unregister_device(device_id)
+        success = srv6_sdn_controller_state.unregister_device(device_id)
+        if success is None or success is False:
+            err = ('Cannot unregister the device. '
+                    'Error while updating the controller state')
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR, err
         
+        # Destroy the tunnel
+        logging.debug(
+            'Trying to destroy the tunnel for the device %s' % device_id)
+        tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
+        # Success
+        logging.debug('Device unregistered: %s' % device_id)
+        return STATUS_SUCCESS, tunnel_info
+
+    def device_disconnected(self, device_id, tunnel_info):
+        logging.debug('Unregistering the device %s' % device_id)
+        # Get the tunnel mode
+        tunnel_mode = self.devices[device_id]['tunnel_mode']
+        tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+        # Get the tunnel info
+        tunnel_info = self.devices[device_id]['tunnel_info']
+        # Get the tenant ID of the devices
+        tenantid = self.devices[device_id]['tenantid']
+        # Remove the device from the data structures
+        del self.device_to_tunnel_mode[device_id]
+        del self.devices[device_id]
+
+        success = srv6_sdn_controller_state.set_device_connected_flag(
+            deviceid=device_id, connected=False)
+        if success is None or success is False:
+            err = ('Cannot set the device as disconnected. '
+                   'Error while updating the controller state')
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR, err
+
         # Destroy the tunnel
         logging.debug(
             'Trying to destroy the tunnel for the device %s' % device_id)
