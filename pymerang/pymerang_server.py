@@ -50,15 +50,15 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         # Device ID
         device_id = request.device.id
         # Features supported by the device
-        features = dict()
+        features = list()
         for feature in request.device.features:
             name = feature.name
             port = feature.port
-            features[name] = {'name': name, 'port': port}
+            features.append({'name': name, 'port': port})
         # Data needed for the device authentication
         auth_data = request.auth_data
         # Interfaces of the devices
-        interfaces = dict()
+        interfaces = list()
         for interface in request.interfaces:
             # Interface name
             ifname = interface.name
@@ -69,7 +69,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             # IPv6 addresses
             ipv6_addrs = list(interface.ipv6_addrs)
             # Save the interface
-            interfaces[ifname] = {
+            interfaces.append({
                 'name': ifname,
                 'mac_addr': mac_addr,
                 'ipv4_addrs': ipv4_addrs,
@@ -79,7 +79,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 'ext_ipv4_addrs': list(),
                 'ext_ipv6_addrs': list(),
                 'type': utils.InterfaceType.UNKNOWN,
-            }
+            })
         # Extract tunnel information
         tunnel_info = request.tunnel_info
         # Prepare the response message
@@ -373,12 +373,12 @@ class PymerangController:
         #tunnel_mode = self.device_to_tunnel_mode[device_id]
         #tunnel_mode.update_tunnel_controller_endpoint(device_id, tunnel_info)
         # Update the device information
-        for interface in interfaces.values():
-            name = interface['name']
-            ext_ipv4_addrs = interface['ext_ipv4_addrs']
-            ext_ipv6_addrs = interface['ext_ipv6_addrs']
-            self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
-            self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
+        #for interface in interfaces.values():
+        #    name = interface['name']
+        #    ext_ipv4_addrs = interface['ext_ipv4_addrs']
+        #    ext_ipv6_addrs = interface['ext_ipv6_addrs']
+        #    self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
+        #    self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
         # Update controller state
         srv6_sdn_controller_state.update_tunnel_mode(device_id, mgmtip, interfaces, tunnel_name, nat_type)
