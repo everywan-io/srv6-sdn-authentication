@@ -416,8 +416,10 @@ if __name__ == '__main__':
     debug = args.debug
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
+        logging.getLogger().setLevel(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
+        logging.getLogger().setLevel(level=logging.INFO)
     # Setup properly the secure mode
     if args.secure:
         secure = True
