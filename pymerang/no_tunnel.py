@@ -30,10 +30,6 @@ class NoTunnel(tunnel_utils.TunnelMode):
                          supported_nat_types=supported_nat_types,
                          priority=priority,
                          controller_ip=controller_ip,
-                         ipv6_net_allocator=None,
-                         ipv4_net_allocator=None,
-                         ipv6_address_allocator=None,
-                         ipv4_address_allocator=None,
                          debug=debug)
 
     def create_tunnel_device_endpoint(self, tunnel_info):

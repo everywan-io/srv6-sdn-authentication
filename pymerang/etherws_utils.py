@@ -10,6 +10,7 @@ from ipaddress import IPv6Network, IPv4Network
 from pymerang import etherws
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
+from srv6_sdn_controller_state import srv6_sdn_controller_state
 
 
 '''
@@ -129,8 +130,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
 
     ''' Ethernet over Websocket tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip,
-                 ipv6_net_allocator, ipv4_net_allocator, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False):
         # etherws tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -150,10 +150,6 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                          supported_nat_types=supported_nat_types,
                          priority=priority,
                          controller_ip=controller_ip,
-                         ipv6_net_allocator=ipv6_net_allocator,
-                         ipv4_net_allocator=ipv4_net_allocator,
-                         ipv6_address_allocator=None,
-                         ipv4_address_allocator=None,
                          debug=debug)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
@@ -206,7 +202,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
             vtep_mask = net.prefixlen
         #elif family == AF_INET:       # TODO handle IPv6
         else:
-            net = self.get_new_mgmt_ipv4_net(device_id)
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv4_net(device_id)
             net = IPv4Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
@@ -227,6 +223,12 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                       % (controller_vtep_ip, vtep_mask, tap_name))
         tunnel_utils.add_address(device=tap_name,
                                  address=controller_vtep_ip, mask=vtep_mask)
+        # Update device VTEP IP address
+        success = srv6_sdn_controller_state.update_device_vtep_ip(
+            device_id, device_vtep_ip)
+        if success is not True:
+            logging.error('Error while updating device VTEP IP address')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Update and return the tunnel info
         tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip

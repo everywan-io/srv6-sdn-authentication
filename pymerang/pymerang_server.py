@@ -356,8 +356,8 @@ class PymerangController:
         # Store tunnel info
         self.devices[device_id]['tunnel_info'] = tunnel_info
         # If a private IP address is present, use it as mgmt address
-        if tunnel_mode.get_device_mgmtip(tenantid, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_mgmtip(tenantid, device_id).split('/')[0]
+        if srv6_sdn_controller_state.get_device_mgmtip(tenantid, device_id) is not None:
+            mgmtip = srv6_sdn_controller_state.get_device_mgmtip(tenantid, device_id).split('/')[0]
             self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode

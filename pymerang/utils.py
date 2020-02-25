@@ -276,12 +276,6 @@ class TunnelState:
             self.nat_to_tunnel_modes[nat_type] = dict()
         # Save server IP
         self.controller_ip = controller_ip
-        # Initialize network allocator
-        self.ipv6_net_allocator = IPv6NetAllocator()
-        self.ipv4_net_allocator = IPv4NetAllocator()
-        # Initialize address allocator
-        self.ipv6_address_allocator = IPv6AddressAllocator()
-        self.ipv4_address_allocator = IPv4AddressAllocator()
         # Initialize tunnel modes
         self.init_tunnel_modes()
 
@@ -333,16 +327,12 @@ class TunnelState:
         self.register_tunnel_mode(vxlan_utils.TunnelVXLAN(
             name='vxlan',
             priority=5,
-            controller_ip=self.controller_ip,
-            ipv6_address_allocator=self.ipv6_address_allocator,
-            ipv4_address_allocator=self.ipv4_address_allocator)
+            controller_ip=self.controller_ip)
         )
         # Ethernet over Websocket tunnel mode
         self.register_tunnel_mode(
             etherws_utils.TunnelEtherWs(
                 name='etherws',
                 priority=10,
-                controller_ip=self.controller_ip,
-                ipv6_net_allocator=self.ipv6_net_allocator,
-                ipv4_net_allocator=self.ipv4_net_allocator)
+                controller_ip=self.controller_ip)
         )
