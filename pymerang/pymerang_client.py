@@ -48,8 +48,8 @@ class PymerangDevice:
 
     def __init__(self, server_ip, server_port, nat_discovery_server_ip,
                  nat_discovery_server_port, nat_discovery_client_ip,
-                 nat_discovery_client_port, config_file,
-                 token_file, keep_alive_interval=30, debug=False):
+                 nat_discovery_client_port, config_file, token_file,
+                 keep_alive_interval=30, stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -95,6 +95,10 @@ class PymerangDevice:
         self.interfaces = list()
         # VTEP configured
         self.vtep_configured = False
+        # Stop event
+        self.stop_event = stop_event
+        # Start thread
+        Thread(target=self.shutdown_device).start()
 
     def run_nat_discovery(self):
         # Run the stun test to discover the NAT type
@@ -485,6 +489,12 @@ class PymerangDevice:
                                   '%s - %s' % (status_code, details))
                     return
 
+    def shutdown_device(self):
+        self.stop_event.wait()
+        logging.info('Received shutdown command. '
+                     'Destroying management interface')
+        self.tunnel_mode.destroy_tunnel_device_endpoint(self.device_id)
+        logging.info('Management interface destroyed')
 
     def run(self):
         logging.info('Client started')

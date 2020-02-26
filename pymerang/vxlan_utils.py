@@ -283,7 +283,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         logging.debug('The VXLAN interface has been configured')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint(self, deviceid):
         logging.info('Destroying the VXLAN tunnel')
         # VNI used for VXLAN management interface
         vni = MGMT_VNI

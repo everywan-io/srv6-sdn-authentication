@@ -242,12 +242,10 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         logging.debug('The etherws tunnel has been configured')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint(self, deviceid):
         logging.info('Destroying the etherws tunnel')
-        # Extract the device ID
-        device_id = tunnel_info.device_id
         # Delete the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
         tunnel_utils.delete_interface(device=tap_name)
         # del_etherws_port(1)
         # Delete the websocket interface
