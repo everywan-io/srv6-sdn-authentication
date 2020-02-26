@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import pyroute2
 import logging
 import pynat
 from socket import AF_INET, AF_INET6
@@ -11,6 +12,10 @@ from pymerang import etherws
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
 from srv6_sdn_controller_state import srv6_sdn_controller_state
+
+
+# Global variables
+NO_SUCH_FILE_OR_DIRECTORY = 2
 
 
 '''
@@ -259,12 +264,19 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         device_id = tunnel_info.device_id
         # Delete the TAP interface
         tap_name = '%s-%s' % (self.name, device_id[:3])
-        tunnel_utils.delete_interface(device=tap_name)
+        try:
+            tunnel_utils.delete_interface(device=tap_name)
+        except pyroute2.netlink.exceptions.NetlinkError as e:
+            if e.code == NO_SUCH_FILE_OR_DIRECTORY:
+                logging.warning('Skipping remove_ip_neigh: %s' % e)
+            else:
+                logging.error('Error in remove_ip_neigh: %s' % e)
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Delete the TAP interface
         # del_etherws_port(1)
         # Release the private IP address associated to the device
-        self.release_ipv4_address(device_id)
-        self.release_ipv6_address(device_id)
+        srv6_sdn_controller_state.release_ipv4_net(device_id)
+        srv6_sdn_controller_state.release_ipv6_net(device_id)
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 

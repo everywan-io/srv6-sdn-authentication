@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import pyroute2
 import logging
 import socket
 import pynat
@@ -11,6 +12,9 @@ from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
 from srv6_sdn_controller_state import srv6_sdn_controller_state
 
+
+# Global variables
+NO_SUCH_FILE_OR_DIRECTORY = 2
 # Destination port used by VXLAN interfaces
 VXLAN_DSTPORT = 4789
 # Enable UDP checksum on VXLAN packets
@@ -288,12 +292,13 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # Remove the IP address assigned to the interface
         device_vtep_ip = self.device_vtep_ip
         vtep_mask = self.vtep_mask
-        logging.debug('Attempting to remove the IP address %s/%s '
-                      'from the VXLAN management interface %s'
-                      % (device_vtep_ip, vtep_mask, vxlan_name))
-        tunnel_utils.del_address(device=vxlan_name,
-                                 address=device_vtep_ip,
-                                 mask=vtep_mask)
+        if device_vtep_ip is not None:
+            logging.debug('Attempting to remove the IP address %s/%s '
+                          'from the VXLAN management interface %s'
+                          % (device_vtep_ip, vtep_mask, vxlan_name))
+            tunnel_utils.del_address(device=vxlan_name,
+                                     address=device_vtep_ip,
+                                     mask=vtep_mask)
         # Delete the VXLAN interface
         logging.debug('Attempting to remove the VXLAN '
                       'interface %s' % vxlan_name)
@@ -306,14 +311,13 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_controller_endpoint(self, device_id, tenantid):
         logging.info('Destroying the VXLAN tunnel for the device %s'
-                     % tunnel_info.device_id)
+                     % device_id)
         # Extract the device ID
-        device_id = tunnel_info.device_id
+        #device_id = device_id
         # Extract the tenant ID
-        #tenantid = tunnel_info.tenantid
-        tenantid = '0'
+        #tenantid = tenantid
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Name of the VXLAN interface
@@ -325,8 +329,15 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         logging.debug('Attempting to remove the neigh from the neigh table\n'
                       'dst=%s, vxlan_name=%s'
                       % (device_vtep_ip, vxlan_name))
-        tunnel_utils.remove_ip_neigh(dev=vxlan_name,
-                                     dst=device_vtep_ip)
+        try:
+            tunnel_utils.remove_ip_neigh(dev=vxlan_name,
+                                         dst=device_vtep_ip)
+        except pyroute2.netlink.exceptions.NetlinkError as e:
+            if e.code == NO_SUCH_FILE_OR_DIRECTORY:
+                logging.warning('Skipping remove_ip_neigh: %s' % e)
+            else:
+                logging.error('Error in remove_ip_neigh: %s' % e)
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Remove the FDB entry that associate the device VTEP MAC address
         # to the device IP address
         device_vtep_mac = srv6_sdn_controller_state.get_device_vtep_mac(
@@ -336,8 +347,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                       % (device_vtep_mac, vxlan_name))
         remove_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac)
         # Release the private IP address associated to the device
-        srv6_sdn_controller_state.release_ipv4_address(device_id, tenantid)
-        srv6_sdn_controller_state.release_ipv6_address(device_id, tenantid)
+        srv6_sdn_controller_state.release_ipv4_address(device_id)
+        srv6_sdn_controller_state.release_ipv6_address(device_id)
         # Success
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
@@ -352,7 +363,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         return self.create_tunnel_device_endpoint_end(tunnel_info)
 
     def update_tunnel_controller_endpoint(self, tunnel_info):
-        res = self.destroy_tunnel_controller_endpoint(tunnel_info)
+        res = self.destroy_tunnel_controller_endpoint(
+            tunnel_info.deviceid, tunnel_info.tenantid)
         if res == status_codes_pb2.STATUS_SUCCESS:
             res = self.create_tunnel_controller_endpoint(tunnel_info)
         return res

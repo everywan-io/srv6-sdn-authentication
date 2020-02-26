@@ -149,7 +149,7 @@ def send_keep_alive_udp(dst_ip, dst_port):
 
 
 # Start sending keep alive messages using ICMP protocol
-def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
+def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0, callback=None):
     logging.info('Start sending ICMP keep alive messages to %s\n'
                  'Interval set to %s seconds' % (dst_ip, interval))
     current_lost = 0
@@ -159,13 +159,12 @@ def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
         if max_lost > 0:
             if not delay:
                 current_lost += 1
-                logging.debug('Lost keep alive message (count %s)' %
-                              current_lost)
+                logging.warning('Lost keep alive message (count %s)' %
+                                current_lost)
                 if max_lost > 0 and current_lost >= max_lost:
                     # Too many lost keep alive messages
                     if callback is not None:
-                        logging.info('Too many lost keep alive messages\n'
-                                     'Trying to reconnect to the controller')
+                        logging.warning('Too many lost keep alive messages\n')
                         return callback()
                     return None
             else:
