@@ -255,25 +255,15 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
 class PymerangController:
 
     def __init__(self, server_ip='::1', server_port=50051,
-                 devices=None, controller_state=None, keep_alive_interval=30):
+                 keep_alive_interval=30):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
         self.server_port = server_port
-        # Data structure for storing devices information
-        if devices is not None:
-            self.devices = devices
-        else:
-            self.devices = dict()
         # Tunnel state
         self.tunnel_state = None
-        # Mapping device to tunnel mode
-        self.device_to_tunnel_mode = dict()
         # Interval between two consecutive keep alive messages
         self.keep_alive_interval = keep_alive_interval
-        self.device_enforced_ports = dict()  # TODO
-        # Controller state
-        self.controller_state = controller_state
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
@@ -321,27 +311,18 @@ class PymerangController:
     def register_device(self, device_id, features,
                         interfaces, mgmtip, auth_data, tunnel_info):
         logging.info('Registering the device %s' % device_id)
-        # If the device is already registered, un-register it before
-        # starting the new registration
-        if device_id in self.devices:
+        # If the device is already registered, send it the configuration
+        # and create tunnels
+        if srv6_sdn_controller_state.device_exists(device_id):
             logging.warning('The device %s is already registered' % device_id)
+            # TODO configure device
+            # TODO create tunnels
         # Device authentication
         authenticated, tenantid = self.authenticate_device(
             device_id, auth_data)
         if not authenticated:
             logging.info('Authentication failed for the device %s' % device_id)
             return STATUS_UNAUTHORIZED, None, None, None
-        # Register the device
-        self.devices[device_id] = {
-            'features': features,
-            'interfaces': interfaces,
-            'mgmtip': mgmtip,
-            'tenantid': tenantid,
-            'tunnel_mode': None,
-            'tunnel_info': None,
-            'nat_type': None,
-            'status': utils.DeviceStatus.CONNECTED
-        }
         # Update controller state
         srv6_sdn_controller_state.register_device(device_id, features, interfaces, mgmtip, tenantid)
         # Get the tenant configuration
@@ -354,7 +335,7 @@ class PymerangController:
         if port is None:
             port = tunnel_info.device_external_port
         # Success
-        logging.debug('New device registered:\n%s' % self.devices[device_id])
+        logging.debug('New device registered:\n%s' % device_id)
         return STATUS_SUCCESS, tunnel_info, port, tenantid
 
     # Update tunnel mode
@@ -400,7 +381,7 @@ class PymerangController:
             mgmtip = srv6_sdn_controller_state.get_device_mgmtip(tenantid, device_id).split('/')[0]
             #self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
-        self.device_to_tunnel_mode[device_id] = tunnel_mode
+        #self.device_to_tunnel_mode[device_id] = tunnel_mode
         # Send a keep-alive messages to keep the tunnel opened,
         # if required for the tunnel mode
         if tunnel_mode.require_keep_alive_messages:
@@ -445,16 +426,17 @@ class PymerangController:
     def unregister_device(self, device_id, tunnel_info):
         logging.debug('Unregistering the device %s' % device_id)
         # Get the tunnel mode
-        tunnel_mode = self.devices[device_id]['tunnel_mode']
-        tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        #tunnel_mode = self.devices[device_id]['tunnel_mode']
+        #tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(device_id)
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
         # Get the tunnel info
-        tunnel_info = self.devices[device_id]['tunnel_info']
+        #tunnel_info = self.devices[device_id]['tunnel_info']
         # Get the tenant ID of the devices
-        tenantid = self.devices[device_id]['tenantid']
+        #tenantid = self.devices[device_id]['tenantid']
         # Remove the device from the data structures
-        del self.device_to_tunnel_mode[device_id]
-        del self.devices[device_id]
+        #del self.device_to_tunnel_mode[device_id]
+        #del self.devices[device_id]
         
         success = srv6_sdn_controller_state.unregister_device(device_id)
         if success is None or success is False:
@@ -474,16 +456,18 @@ class PymerangController:
     def device_disconnected(self, device_id, tunnel_info):
         logging.debug('Unregistering the device %s' % device_id)
         # Get the tunnel mode
-        tunnel_mode = self.devices[device_id]['tunnel_mode']
-        tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        #tunnel_mode = self.devices[device_id]['tunnel_mode']
+        #tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
+        tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(device_id)
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
         # Get the tunnel info
-        tunnel_info = self.devices[device_id]['tunnel_info']
+        #tunnel_info = self.devices[device_id]['tunnel_info']
         # Get the tenant ID of the devices
-        tenantid = self.devices[device_id]['tenantid']
+        #tenantid = self.devices[device_id]['tenantid']
+        tenantid = srv6_sdn_controller_state.get_device(device_id)['tenantid']
         # Remove the device from the data structures
-        del self.device_to_tunnel_mode[device_id]
-        del self.devices[device_id]
+        #del self.device_to_tunnel_mode[device_id]
+        #del self.devices[device_id]
 
         success = srv6_sdn_controller_state.set_device_connected_flag(
             deviceid=device_id, connected=False)
@@ -580,11 +564,9 @@ if __name__ == '__main__':
     server_ip = args.server_ip
     # gRPC server port
     server_port = args.server_port
-    # Devices
-    devices = dict()
     # Keep alive interval
     keep_alive_interval = args.keep_alive_interval
     # Start server
     controller = PymerangController(server_ip, server_port,
-                                    devices, keep_alive_interval)
+                                    keep_alive_interval)
     controller.serve()
