@@ -8,6 +8,7 @@ import pynat
 import grpc
 import json
 import sys
+import time
 from threading import Thread
 from socket import AF_INET6, AF_INET
 # ipaddress dependencies
@@ -44,6 +45,8 @@ DEFAULT_TOKEN_FILE = 'token'
 DEFAULT_SECURE = False
 # SSL cerificate for server validation
 DEFAULT_CERTIFICATE = 'cert_client.pem'
+# GRPC retry interval (in seconds)
+GRPC_RETRY_INTERVAL = 10
 
 
 class PymerangDevice:
@@ -53,7 +56,7 @@ class PymerangDevice:
                  nat_discovery_client_port, config_file,
                  token_file, keep_alive_interval=30,
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
-                 debug=False):
+                 stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -103,6 +106,14 @@ class PymerangDevice:
                               'in secure mode')
                 sys.exit(-2)
             self.certificate = certificate
+        # Interfaces
+        self.interfaces = list()
+        # VTEP configured
+        self.vtep_configured = False
+        # Stop event
+        self.stop_event = stop_event
+        # Start thread
+        Thread(target=self.shutdown_device).start()
 
     # Build a grpc stub
     def get_grpc_session(self, ip_address, port):
@@ -127,7 +138,110 @@ class PymerangDevice:
             channel = grpc.insecure_channel(server_address)
         return channel
 
-    def register_device(self):
+    def run_nat_discovery(self):
+        # Run the stun test to discover the NAT type
+        logging.info('Running STUN test to discover the NAT type\n'
+                     'STUN client IP: %s\nSTUN client PORT: %s\n'
+                     'STUN server IP: %s\nSTUN server port: %s\n'
+                     % (self.nat_discovery_client_ip,
+                        self.nat_discovery_client_port,
+                        self.nat_discovery_server_ip,
+                        self.nat_discovery_server_port))
+        nat_type, external_ip, external_port = pynat.get_ip_info(
+            self.nat_discovery_client_ip,
+            self.nat_discovery_client_port,
+            self.nat_discovery_server_ip,
+            self.nat_discovery_server_port
+        )
+        if nat_type is None:
+            logging.error('Error in STUN client')
+        logging.info('NAT detected: %s' % nat_type)
+        # Save the NAT type
+        self.nat_type = nat_type
+        # Save the external IP address
+        self.external_ip = external_ip
+        # Save the external port
+        self.external_port = external_port
+        # Get the best tunnel mode working with the NAT type
+        tunnel_mode = self.tunnel_state.select_tunnel_mode(nat_type)
+        if tunnel_mode is None:
+            logging.error('No tunnel mode supporting the NAT type')
+            return
+        logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
+        # Set the interfaces
+        interfaces = utils.get_local_interfaces()
+        for ifname, ifinfo in interfaces.items():
+            # interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
+            # interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+            ext_ipv4_addrs = list()
+            ext_ipv6_addrs = list()
+            if ifname != 'lo':
+                for addr in ifinfo['ipv4_addrs']:
+                    # Run the stun test to discover the
+                    # external IP and port of the interface
+                    addr = addr.split('/')[0]
+                    if not IPv4Address(addr).is_link_local:
+                        try:
+                            nat_type, external_ip, external_port = \
+                                pynat.get_ip_info(addr.split('/')[0],
+                                                  self.nat_discovery_client_port,
+                                                  self.nat_discovery_server_ip,
+                                                  self.nat_discovery_server_port
+                                                  )
+                            if external_ip is not None:
+                                ext_ipv4_addrs.append(
+                                    external_ip)
+                        except OSError as e:
+                            logging.warning('Error running STUN test with the '
+                                            'following parameters\n'
+                                            'STUN client IP: %s\n'
+                                            'STUN client PORT: %s\n'
+                                            'STUN server IP: %s\n'
+                                            'STUN server port: %s\n'
+                                            'Error: %s\n\n'
+                                            % (addr.split('/')[0],
+                                                self.nat_discovery_client_port,
+                                                self.nat_discovery_server_ip,
+                                                self.nat_discovery_server_port,
+                                                e))
+                for addr in ifinfo['ipv6_addrs']:
+                    # Run the stun test to discover the
+                    # external IP and port of the interface
+                    addr = addr.split('/')[0]
+                    if not IPv6Address(addr).is_link_local:
+                        try:
+                            nat_type, external_ip, external_port = \
+                                pynat.get_ip_info(addr.split('/')[0],
+                                                  self.nat_discovery_client_port,
+                                                  self.nat_discovery_server_ip,
+                                                  self.nat_discovery_server_port
+                                                  )
+                            if external_ip is not None:
+                                ext_ipv6_addrs.append(
+                                    external_ip)
+                        except OSError as e:
+                            logging.warning('Error running STUN test with the '
+                                            'following parameters\n'
+                                            'STUN client IP: %s\n'
+                                            'STUN client PORT: %s\n'
+                                            'STUN server IP: %s\n'
+                                            'STUN server port: %s\n'
+                                            'Error: %s\n\n'
+                                            % (addr.split('/')[0],
+                                                self.nat_discovery_client_port,
+                                                self.nat_discovery_server_ip,
+                                                self.nat_discovery_server_port,
+                                                e))
+            # Append the interface
+            self.interfaces.append({
+                'name': ifname,
+                'ext_ipv4_addrs': ext_ipv4_addrs,
+                'ext_ipv6_addrs': ext_ipv6_addrs
+            })
+        # Set the tunnel mode
+        self.tunnel_mode = tunnel_mode
+
+    def _register_device(self):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(self.server_ip,
                                    self.server_port) as channel:
@@ -160,6 +274,7 @@ class PymerangDevice:
             response = stub.RegisterDevice(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
                 logging.info('Device authenticated')
+                self.tenantid = response.tunnel_info.tenantid
                 if self.nat_discovery_client_port == 0:
                     if response.vxlan_port is not None:
                         self.nat_discovery_client_port = response.vxlan_port
@@ -179,7 +294,7 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s' % response.status)
                 return response.status
 
-    def update_tunnel_mode(self):
+    def _update_tunnel_mode(self):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(self.server_ip,
                                    self.server_port) as channel:
@@ -192,120 +307,126 @@ class PymerangDevice:
             tunnel_info.device_id = self.device_id
             # Start registration procedure
             logging.info("-------------- Update Tunnel Mode --------------")
-            if self.tunnel_mode is not None:
-                # Destroy the tunnel
-                logging.info('Destroying the tunnel for the device')
-                self.tunnel_mode.destroy_tunnel_device_endpoint(
-                    tunnel_info=tunnel_info)
-                self.tunnel_mode = None
-            # Run the stun test to discover the NAT type
-            logging.info('Running STUN test to discover the NAT type\n'
-                         'STUN client IP: %s\nSTUN client PORT: %s\n'
-                         'STUN server IP: %s\nSTUN server port: %s\n'
-                         % (self.nat_discovery_client_ip,
-                            self.nat_discovery_client_port,
-                            self.nat_discovery_server_ip,
-                            self.nat_discovery_server_port))
-            nat_type, external_ip, external_port = pynat.get_ip_info(
-                self.nat_discovery_client_ip,
-                self.nat_discovery_client_port,
-                self.nat_discovery_server_ip,
-                self.nat_discovery_server_port
-            )
-            if nat_type is None:
-                logging.error('Error in STUN client')
-            logging.info('NAT detected: %s' % nat_type)
-            # Check if the tunnel mode has changed
-            tunnel_mode_changed = True
-            if self.nat_type is not None and self.nat_type == nat_type:
-                tunnel_mode_changed = False
-            # Save the NAT type
-            self.nat_type = nat_type
-            # Save the external IP address
-            self.external_ip = external_ip
-            # Save the external port
-            self.external_port = external_port
-            # Get the best tunnel mode working with the NAT type
-            tunnel_mode = self.tunnel_state.select_tunnel_mode(nat_type)
-            if tunnel_mode is None:
-                logging.error('No tunnel mode supporting the NAT type')
-                return
-            logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
+            # if self.tunnel_mode is not None:
+            #     # Destroy the tunnel
+            #     logging.info('Destroying the tunnel for the device')
+            #     self.tunnel_mode.destroy_tunnel_device_endpoint(
+            #         tunnel_info=tunnel_info)
+            #     self.tunnel_mode = None
+            # # Run the stun test to discover the NAT type
+            # logging.info('Running STUN test to discover the NAT type\n'
+            #              'STUN client IP: %s\nSTUN client PORT: %s\n'
+            #              'STUN server IP: %s\nSTUN server port: %s\n'
+            #              % (self.nat_discovery_client_ip,
+            #                 self.nat_discovery_client_port,
+            #                 self.nat_discovery_server_ip,
+            #                 self.nat_discovery_server_port))
+            # nat_type, external_ip, external_port = pynat.get_ip_info(
+            #     self.nat_discovery_client_ip,
+            #     self.nat_discovery_client_port,
+            #     self.nat_discovery_server_ip,
+            #     self.nat_discovery_server_port
+            # )
+            # if nat_type is None:
+            #     logging.error('Error in STUN client')
+            # logging.info('NAT detected: %s' % nat_type)
+            # # Check if the tunnel mode has changed
+            # tunnel_mode_changed = True
+            # if self.nat_type is not None and self.nat_type == nat_type:
+            #     tunnel_mode_changed = False
+            # # Save the NAT type
+            # self.nat_type = nat_type
+            # # Save the external IP address
+            # self.external_ip = external_ip
+            # # Save the external port
+            # self.external_port = external_port
+            # # Get the best tunnel mode working with the NAT type
+            # tunnel_mode = self.tunnel_state.select_tunnel_mode(nat_type)
+            # if tunnel_mode is None:
+            #     logging.error('No tunnel mode supporting the NAT type')
+            #     return
+            # logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
+            # # Set the interfaces
+            # interfaces = utils.get_local_interfaces()
+            # for ifname, ifinfo in interfaces.items():
+            #     interface = request.interfaces.add()
+            #     interface.name = ifname
+            #     # interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
+            #     # interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+            #     if ifname != 'lo':
+            #         for addr in ifinfo['ipv4_addrs']:
+            #             # Run the stun test to discover the
+            #             # external IP and port of the interface
+            #             addr = addr.split('/')[0]
+            #             if not IPv4Address(addr).is_link_local:
+            #                 try:
+            #                     nat_type, external_ip, external_port = \
+            #                         pynat.get_ip_info(addr.split('/')[0],
+            #                                           self.nat_discovery_client_port,
+            #                                           self.nat_discovery_server_ip,
+            #                                           self.nat_discovery_server_port
+            #                                           )
+            #                     if external_ip is not None:
+            #                         interface.ext_ipv4_addrs.append(
+            #                             external_ip)
+            #                 except OSError as e:
+            #                     logging.warning('Error running STUN test with the '
+            #                                     'following parameters\n'
+            #                                     'STUN client IP: %s\n'
+            #                                     'STUN client PORT: %s\n'
+            #                                     'STUN server IP: %s\n'
+            #                                     'STUN server port: %s\n'
+            #                                     'Error: %s\n\n'
+            #                                     % (addr.split('/')[0],
+            #                                        self.nat_discovery_client_port,
+            #                                        self.nat_discovery_server_ip,
+            #                                        self.nat_discovery_server_port,
+            #                                        e))
+            #         for addr in ifinfo['ipv6_addrs']:
+            #             # Run the stun test to discover the
+            #             # external IP and port of the interface
+            #             addr = addr.split('/')[0]
+            #             if not IPv6Address(addr).is_link_local:
+            #                 try:
+            #                     nat_type, external_ip, external_port = \
+            #                         pynat.get_ip_info(addr.split('/')[0],
+            #                                           self.nat_discovery_client_port,
+            #                                           self.nat_discovery_server_ip,
+            #                                           self.nat_discovery_server_port
+            #                                           )
+            #                     if external_ip is not None:
+            #                         interface.ext_ipv6_addrs.append(
+            #                             external_ip)
+            #                 except OSError as e:
+            #                     logging.warning('Error running STUN test with the '
+            #                                     'following parameters\n'
+            #                                     'STUN client IP: %s\n'
+            #                                     'STUN client PORT: %s\n'
+            #                                     'STUN server IP: %s\n'
+            #                                     'STUN server port: %s\n'
+            #                                     'Error: %s\n\n'
+            #                                     % (addr.split('/')[0],
+            #                                        self.nat_discovery_client_port,
+            #                                        self.nat_discovery_server_ip,
+            #                                        self.nat_discovery_server_port,
+            #                                        e))
+            # # Set the tunnel mode
+            # self.tunnel_mode = tunnel_mode
+            for ifinfo in self.interfaces:
+                interface = request.interfaces.add()
+                interface.name = ifinfo['name']
+                interface.ext_ipv4_addrs.extend(ifinfo['ext_ipv4_addrs'])
+                interface.ext_ipv6_addrs.extend(ifinfo['ext_ipv6_addrs'])
             # Set the device ID
             request.device.id = self.device_id
-            # Set the interfaces
-            interfaces = utils.get_local_interfaces()
-            for ifname, ifinfo in interfaces.items():
-                interface = request.interfaces.add()
-                interface.name = ifname
-                # interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
-                # interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
-                if ifname != 'lo':
-                    for addr in ifinfo['ipv4_addrs']:
-                        # Run the stun test to discover the
-                        # external IP and port of the interface
-                        addr = addr.split('/')[0]
-                        if not IPv4Address(addr).is_link_local:
-                            try:
-                                nat_type, external_ip, external_port = \
-                                    pynat.get_ip_info(addr.split('/')[0],
-                                                      self.nat_discovery_client_port,
-                                                      self.nat_discovery_server_ip,
-                                                      self.nat_discovery_server_port
-                                                      )
-                                if external_ip is not None:
-                                    interface.ext_ipv4_addrs.append(
-                                        external_ip)
-                            except OSError as e:
-                                logging.warning('Error running STUN test with the '
-                                                'following parameters\n'
-                                                'STUN client IP: %s\n'
-                                                'STUN client PORT: %s\n'
-                                                'STUN server IP: %s\n'
-                                                'STUN server port: %s\n'
-                                                'Error: %s\n\n'
-                                                % (addr.split('/')[0],
-                                                   self.nat_discovery_client_port,
-                                                   self.nat_discovery_server_ip,
-                                                   self.nat_discovery_server_port,
-                                                   e))
-                    for addr in ifinfo['ipv6_addrs']:
-                        # Run the stun test to discover the
-                        # external IP and port of the interface
-                        addr = addr.split('/')[0]
-                        if not IPv6Address(addr).is_link_local:
-                            try:
-                                nat_type, external_ip, external_port = \
-                                    pynat.get_ip_info(addr.split('/')[0],
-                                                      self.nat_discovery_client_port,
-                                                      self.nat_discovery_server_ip,
-                                                      self.nat_discovery_server_port
-                                                      )
-                                if external_ip is not None:
-                                    interface.ext_ipv6_addrs.append(
-                                        external_ip)
-                            except OSError as e:
-                                logging.warning('Error running STUN test with the '
-                                                'following parameters\n'
-                                                'STUN client IP: %s\n'
-                                                'STUN client PORT: %s\n'
-                                                'STUN server IP: %s\n'
-                                                'STUN server port: %s\n'
-                                                'Error: %s\n\n'
-                                                % (addr.split('/')[0],
-                                                   self.nat_discovery_client_port,
-                                                   self.nat_discovery_server_ip,
-                                                   self.nat_discovery_server_port,
-                                                   e))
-            # Set the tunnel mode
-            self.tunnel_mode = tunnel_mode
             # Set the tunnel mode
             request.tunnel_mode = self.tunnel_mode.name
             # Set the NAT type
             request.nat_type = self.nat_type
             # Set the tunnel info
             tunnel_info = request.tunnel_info
-            tunnel_info.tunnel_mode = utils.TUNNEL_MODES[tunnel_mode.name]
+            tunnel_info.tenantid = self.tenantid
+            tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
             tunnel_info.device_id = self.device_id
             if self.external_ip is not None:
                 tunnel_info.device_external_ip = self.external_ip
@@ -313,21 +434,25 @@ class PymerangDevice:
                 tunnel_info.vxlan_port = self.vxlan_port
             # Create the tunnel
             logging.info('Creating the tunnel for the device')
+            if self.vtep_configured:
+                self.tunnel_mode.destroy_tunnel_device_endpoint(
+                    tunnel_info)
             self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
-            # Send the registration request
-            logging.info('Sending the registration request')
+            # Send the update tunnel mode request
+            logging.info('Sending the update tunnel mode request')
             response = stub.UpdateTunnelMode(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
                 # Tunnel mode established
                 tunnel_info = response.tunnel_info
                 # Create the tunnel
                 logging.info('Finalizing tunnel configuration')
-                if tunnel_mode_changed:
-                    self.tunnel_mode.create_tunnel_device_endpoint_end(
-                        tunnel_info)
-                else:
-                    self.tunnel_mode.update_tunnel_device_endpoint_end(
-                        tunnel_info)
+                # if tunnel_mode_changed:
+                self.tunnel_mode.create_tunnel_device_endpoint_end(
+                    tunnel_info)
+                self.vtep_configured = True
+                # else:
+                #    self.tunnel_mode.update_tunnel_device_endpoint_end(
+                #        tunnel_info)
                 # Get the controller address
                 self.controller_mgmtip = \
                     self.tunnel_mode.get_controller_mgmtip()
@@ -345,10 +470,57 @@ class PymerangDevice:
                            ).start()
                 # Return the configuration
                 return status_codes_pb2.STATUS_SUCCESS
+            elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+                # Authentication failed
+                logging.warning('Authentication failed')
+                return status_codes_pb2.STATUS_UNAUTHORIZED
             else:
                 # Unknown status code
                 logging.warning('Unknown status code: %s' % response.status)
                 return
+
+    def update_tunnel_mode(self):
+        while True:
+            try:
+                return self._update_tunnel_mode()
+            except grpc.RpcError as e:
+                status_code = e.code()
+                details = e.details()
+                if grpc.StatusCode.UNAVAILABLE == status_code:
+                    logging.error('Unable to contact controller '
+                                  '(unreachable gRPC server): %s\n\n'
+                                  'Retrying in %s seconds'
+                                  % (details, GRPC_RETRY_INTERVAL))
+                    time.sleep(GRPC_RETRY_INTERVAL)
+                else:
+                    logging.error('Error in update_tunnel_mode: '
+                                  '%s - %s' % (status_code, details))
+                    return
+
+    def register_device(self):
+        while True:
+            try:
+                return self._register_device()
+            except grpc.RpcError as e:
+                status_code = e.code()
+                details = e.details()
+                if grpc.StatusCode.UNAVAILABLE == status_code:
+                    logging.error('Unable to contact controller '
+                                  '(unreachable gRPC server): %s\n\n'
+                                  'Retrying in %s seconds'
+                                  % (details, GRPC_RETRY_INTERVAL))
+                    time.sleep(GRPC_RETRY_INTERVAL)
+                else:
+                    logging.error('Error in update_tunnel_mode: '
+                                  '%s - %s' % (status_code, details))
+                    return
+
+    def shutdown_device(self):
+        self.stop_event.wait()
+        logging.info('Received shutdown command. '
+                     'Destroying management interface')
+        self.tunnel_mode.destroy_tunnel_device_endpoint(self.device_id)
+        logging.info('Management interface destroyed')
 
     def run(self):
         logging.info('Client started')
@@ -358,6 +530,8 @@ class PymerangDevice:
         if self.register_device() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in device registration')
             return
+        # Start NAT discovery procedure
+        self.run_nat_discovery()
         # Update tunnel mode
         if self.update_tunnel_mode() != \
                 status_codes_pb2.STATUS_SUCCESS:
