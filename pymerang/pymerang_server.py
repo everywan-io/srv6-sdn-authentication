@@ -23,6 +23,12 @@ DEFAULT_PYMERANG_SERVER_IP = '::'
 DEFAULT_PYMERANG_SERVER_PORT = 50061
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
+# Secure option
+DEFAULT_SECURE = False
+# Server certificate
+DEFAULT_CERTIFICATE = 'cert_server.pem'
+# Server key
+DEFAULT_KEY = 'key_server.pem'
 
 # Default VXLAN port
 DEFAULT_VXLAN_PORT = 4789
@@ -253,7 +259,9 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
 class PymerangController:
 
     def __init__(self, server_ip='::1', server_port=50051,
-                 devices=None, controller_state=None, keep_alive_interval=30):
+                 devices=None, controller_state=None, keep_alive_interval=30,
+                 secure=DEFAULT_SECURE, key=DEFAULT_KEY,
+                 certificate=DEFAULT_CERTIFICATE):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
@@ -469,8 +477,27 @@ class PymerangController:
         else:
             logging.error('Invalid server address %s' % self.server_ip)
             return
+        # If secure mode is enabled, we need to create a secure endpoint
+        if self.secure:
+            # Read key and certificate
+            with open(self.key, 'rb') as f:
+                key = f.read()
+            with open(self.certificate, 'rb') as f:
+                certificate = f.read()
+            # Create server SSL credentials
+            grpc_server_credentials = grpc.ssl_server_credentials(
+                ((key, certificate,),)
+            )
+            # Create a secure endpoint
+            server.add_secure_port(
+                server_address,
+                grpc_server_credentials
+            )
+        else:
+            # Create an insecure endpoint
+            server.add_insecure_port(server_address)
+        # Start the loop for gRPC
         logging.info('Server started: listening on %s' % server_address)
-        server.add_insecure_port(server_address)
         server.start()
         # Wait for server termination
         while True:
@@ -503,9 +530,19 @@ def parse_arguments():
     )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
-        '-k', '--keep-alive-interval', dest='kee_alive_interval',
+        '-t', '--keep-alive-interval', dest='kee_alive_interval',
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
+    )
+    # Server certificate file
+    parser.add_argument(
+        '-c', '--certificate', store='certificate', action='store',
+        default=DEFAULT_CERTIFICATE, help='Server certificate file'
+    )
+    # Server key
+    parser.add_argument(
+        '-k', '--key', store='key', action='store',
+        default=DEFAULT_KEY, help='Server key file'
     )
     # Parse input parameters
     args = parser.parse_args()
@@ -527,6 +564,10 @@ if __name__ == '__main__':
         secure = True
     else:
         secure = False
+    # Server certificate file
+    certificate = args.certificate
+    # Server key
+    key = args.key
     # gRPC server IP
     server_ip = args.server_ip
     # gRPC server port
@@ -537,5 +578,6 @@ if __name__ == '__main__':
     keep_alive_interval = args.keep_alive_interval
     # Start server
     controller = PymerangController(server_ip, server_port,
-                                    devices, keep_alive_interval)
+                                    devices, keep_alive_interval,
+                                    secure, key, certificate)
     controller.serve()
