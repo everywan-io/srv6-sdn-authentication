@@ -2,15 +2,15 @@
 
 # General imports
 from __future__ import print_function
-import logging
 from argparse import ArgumentParser
+from threading import Thread
+from socket import AF_INET, AF_INET6
+import logging
 import pynat
 import grpc
 import json
 import sys
 import time
-from threading import Thread
-from socket import AF_INET6, AF_INET
 # ipaddress dependencies
 from ipaddress import IPv4Address, IPv6Address
 # pymerang dependencies
@@ -37,6 +37,9 @@ DEFAULT_NAT_DISCOVERY_SERVER_PORT = 3478
 DEFAULT_CONFIG_FILE = '/tmp/config.json'
 # Default interval between two keep alive messages
 DEFAULT_KEEP_ALIVE_INTERVAL = 30
+# Max number of keep alive messages lost
+# before taking a corrective action
+DEFAULT_MAX_KEEP_ALIVE_LOST = 3
 # Source port of the NAT discovery
 DEFAULT_VXLAN_PORT = 4789
 # File containing the token
@@ -53,8 +56,9 @@ class PymerangDevice:
 
     def __init__(self, server_ip, server_port, nat_discovery_server_ip,
                  nat_discovery_server_port, nat_discovery_client_ip,
-                 nat_discovery_client_port, config_file,
-                 token_file, keep_alive_interval=30,
+                 nat_discovery_client_port, config_file, token_file,
+                 keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
+                 max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
                  stop_event=None, debug=False):
         # Debug mode
@@ -83,13 +87,13 @@ class PymerangDevice:
         with open(config_file, 'r') as json_file:
             config = json.load(json_file)
         # Save the device ID
-        self.device_id = config['id']
+        self.deviceid = config['id']
         # Save the list of the supported features
-        self.features = config['features']
+        self.features = config.get('features', [])
         # Save interval between two consecutive keep alive messages
         self.keep_alive_interval = keep_alive_interval
-        # VXLAN enforced port
-        self.enforced_vxlan_port = None
+        # Max keep alive lost
+        self.max_keep_alive_lost = max_keep_alive_lost
         # Read the token from the token file
         with open(token_file, 'r') as token_file:
             # Save the token
@@ -106,13 +110,16 @@ class PymerangDevice:
                               'in secure mode')
                 sys.exit(-2)
             self.certificate = certificate
-        # Interfaces
+        # Interfaces on the device
         self.interfaces = list()
-        # VTEP configured
-        self.vtep_configured = False
-        # Stop event
+        # Flags indicating if the management interface has been configured
+        self.tunnel_device_endpoint_configured = False
+        self.tunnel_device_endpoint_end_configured = False
+        # Stop event. If set, something has requested the termination of
+        # the device and we need to deallocate the management interface
+        # and gracefully shutdown this script
         self.stop_event = stop_event
-        # Start thread
+        # Start thread listening for device shutdown
         Thread(target=self.shutdown_device).start()
 
     # Build a grpc stub
@@ -183,11 +190,12 @@ class PymerangDevice:
                     if not IPv4Address(addr).is_link_local:
                         try:
                             nat_type, external_ip, external_port = \
-                                pynat.get_ip_info(addr.split('/')[0],
-                                                  self.nat_discovery_client_port,
-                                                  self.nat_discovery_server_ip,
-                                                  self.nat_discovery_server_port
-                                                  )
+                                pynat.get_ip_info(
+                                    addr.split('/')[0],
+                                    self.nat_discovery_client_port,
+                                    self.nat_discovery_server_ip,
+                                    self.nat_discovery_server_port
+                                )
                             if external_ip is not None:
                                 ext_ipv4_addrs.append(
                                     external_ip)
@@ -211,11 +219,12 @@ class PymerangDevice:
                     if not IPv6Address(addr).is_link_local:
                         try:
                             nat_type, external_ip, external_port = \
-                                pynat.get_ip_info(addr.split('/')[0],
-                                                  self.nat_discovery_client_port,
-                                                  self.nat_discovery_server_ip,
-                                                  self.nat_discovery_server_port
-                                                  )
+                                pynat.get_ip_info(
+                                    addr.split('/')[0],
+                                    self.nat_discovery_client_port,
+                                    self.nat_discovery_server_ip,
+                                    self.nat_discovery_server_port
+                                )
                             if external_ip is not None:
                                 ext_ipv6_addrs.append(
                                     external_ip)
@@ -252,7 +261,7 @@ class PymerangDevice:
             # Prepare the registration message
             request = pymerang_pb2.RegisterDeviceRequest()
             # Set the device ID
-            request.device.id = self.device_id
+            request.device.id = self.deviceid
             # Set the token
             request.auth_data.token = self.token
             # Set the features list
@@ -274,14 +283,21 @@ class PymerangDevice:
             response = stub.RegisterDevice(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
                 logging.info('Device authenticated')
-                self.tenantid = response.tunnel_info.tenantid
+                # Store the tenant ID
+                self.tenantid = response.tenantid
+                # If no port has been specified for NAT discovery client
                 if self.nat_discovery_client_port == 0:
-                    if response.vxlan_port is not None:
-                        self.nat_discovery_client_port = response.vxlan_port
-                        self.vxlan_port = response.vxlan_port
+                    if response.mgmt_info.vxlan_port is not None:
+                        # We use the port set by the tenant for VXLAN port
+                        # forwarding
+                        self.nat_discovery_client_port = \
+                            response.mgmt_info.vxlan_port
                     else:
+                        # If no port has been configured for port forwarding,
+                        # we use the default port of VXLAN, i.e. 4789
                         self.nat_discovery_client_port = DEFAULT_VXLAN_PORT
-                        self.vxlan_port = DEFAULT_VXLAN_PORT
+                # NAT traversal require that the same port is used both for
+                # NAT discovery and communication
                 self.vxlan_port = self.nat_discovery_client_port
                 # Return the configuration
                 return status_codes_pb2.STATUS_SUCCESS
@@ -294,7 +310,7 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s' % response.status)
                 return response.status
 
-    def _update_tunnel_mode(self):
+    def _update_mgmt_info(self):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(self.server_ip,
                                    self.server_port) as channel:
@@ -302,161 +318,91 @@ class PymerangDevice:
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Prepare the registration message
             request = pymerang_pb2.RegisterDeviceRequest()
-            # Set the device ID in the tunnel info
-            tunnel_info = request.tunnel_info
-            tunnel_info.device_id = self.device_id
             # Start registration procedure
             logging.info("-------------- Update Tunnel Mode --------------")
-            # if self.tunnel_mode is not None:
-            #     # Destroy the tunnel
-            #     logging.info('Destroying the tunnel for the device')
-            #     self.tunnel_mode.destroy_tunnel_device_endpoint(
-            #         tunnel_info=tunnel_info)
-            #     self.tunnel_mode = None
-            # # Run the stun test to discover the NAT type
-            # logging.info('Running STUN test to discover the NAT type\n'
-            #              'STUN client IP: %s\nSTUN client PORT: %s\n'
-            #              'STUN server IP: %s\nSTUN server port: %s\n'
-            #              % (self.nat_discovery_client_ip,
-            #                 self.nat_discovery_client_port,
-            #                 self.nat_discovery_server_ip,
-            #                 self.nat_discovery_server_port))
-            # nat_type, external_ip, external_port = pynat.get_ip_info(
-            #     self.nat_discovery_client_ip,
-            #     self.nat_discovery_client_port,
-            #     self.nat_discovery_server_ip,
-            #     self.nat_discovery_server_port
-            # )
-            # if nat_type is None:
-            #     logging.error('Error in STUN client')
-            # logging.info('NAT detected: %s' % nat_type)
-            # # Check if the tunnel mode has changed
-            # tunnel_mode_changed = True
-            # if self.nat_type is not None and self.nat_type == nat_type:
-            #     tunnel_mode_changed = False
-            # # Save the NAT type
-            # self.nat_type = nat_type
-            # # Save the external IP address
-            # self.external_ip = external_ip
-            # # Save the external port
-            # self.external_port = external_port
-            # # Get the best tunnel mode working with the NAT type
-            # tunnel_mode = self.tunnel_state.select_tunnel_mode(nat_type)
-            # if tunnel_mode is None:
-            #     logging.error('No tunnel mode supporting the NAT type')
-            #     return
-            # logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
-            # # Set the interfaces
-            # interfaces = utils.get_local_interfaces()
-            # for ifname, ifinfo in interfaces.items():
-            #     interface = request.interfaces.add()
-            #     interface.name = ifname
-            #     # interface.ext_ipv6_addrs.extend(ifinfo['ipv6_addrs'])
-            #     # interface.ext_ipv4_addrs.extend(ifinfo['ipv4_addrs'])
-            #     if ifname != 'lo':
-            #         for addr in ifinfo['ipv4_addrs']:
-            #             # Run the stun test to discover the
-            #             # external IP and port of the interface
-            #             addr = addr.split('/')[0]
-            #             if not IPv4Address(addr).is_link_local:
-            #                 try:
-            #                     nat_type, external_ip, external_port = \
-            #                         pynat.get_ip_info(addr.split('/')[0],
-            #                                           self.nat_discovery_client_port,
-            #                                           self.nat_discovery_server_ip,
-            #                                           self.nat_discovery_server_port
-            #                                           )
-            #                     if external_ip is not None:
-            #                         interface.ext_ipv4_addrs.append(
-            #                             external_ip)
-            #                 except OSError as e:
-            #                     logging.warning('Error running STUN test with the '
-            #                                     'following parameters\n'
-            #                                     'STUN client IP: %s\n'
-            #                                     'STUN client PORT: %s\n'
-            #                                     'STUN server IP: %s\n'
-            #                                     'STUN server port: %s\n'
-            #                                     'Error: %s\n\n'
-            #                                     % (addr.split('/')[0],
-            #                                        self.nat_discovery_client_port,
-            #                                        self.nat_discovery_server_ip,
-            #                                        self.nat_discovery_server_port,
-            #                                        e))
-            #         for addr in ifinfo['ipv6_addrs']:
-            #             # Run the stun test to discover the
-            #             # external IP and port of the interface
-            #             addr = addr.split('/')[0]
-            #             if not IPv6Address(addr).is_link_local:
-            #                 try:
-            #                     nat_type, external_ip, external_port = \
-            #                         pynat.get_ip_info(addr.split('/')[0],
-            #                                           self.nat_discovery_client_port,
-            #                                           self.nat_discovery_server_ip,
-            #                                           self.nat_discovery_server_port
-            #                                           )
-            #                     if external_ip is not None:
-            #                         interface.ext_ipv6_addrs.append(
-            #                             external_ip)
-            #                 except OSError as e:
-            #                     logging.warning('Error running STUN test with the '
-            #                                     'following parameters\n'
-            #                                     'STUN client IP: %s\n'
-            #                                     'STUN client PORT: %s\n'
-            #                                     'STUN server IP: %s\n'
-            #                                     'STUN server port: %s\n'
-            #                                     'Error: %s\n\n'
-            #                                     % (addr.split('/')[0],
-            #                                        self.nat_discovery_client_port,
-            #                                        self.nat_discovery_server_ip,
-            #                                        self.nat_discovery_server_port,
-            #                                        e))
-            # # Set the tunnel mode
-            # self.tunnel_mode = tunnel_mode
+            # Add external IP addresses to the request
             for ifinfo in self.interfaces:
                 interface = request.interfaces.add()
                 interface.name = ifinfo['name']
                 interface.ext_ipv4_addrs.extend(ifinfo['ext_ipv4_addrs'])
                 interface.ext_ipv6_addrs.extend(ifinfo['ext_ipv6_addrs'])
             # Set the device ID
-            request.device.id = self.device_id
+            request.device.id = self.deviceid
+            # Set the tenant ID
+            request.tenantid = self.tenantid
             # Set the tunnel mode
-            request.tunnel_mode = self.tunnel_mode.name
+            request.mgmt_info.tunnel_mode = self.tunnel_mode.name
             # Set the NAT type
-            request.nat_type = self.nat_type
-            # Set the tunnel info
-            tunnel_info = request.tunnel_info
-            tunnel_info.tenantid = self.tenantid
-            tunnel_info.tunnel_mode = utils.TUNNEL_MODES[self.tunnel_mode.name]
-            tunnel_info.device_id = self.device_id
-            if self.external_ip is not None:
-                tunnel_info.device_external_ip = self.external_ip
-                tunnel_info.device_external_port = self.external_port
-                tunnel_info.vxlan_port = self.vxlan_port
+            request.mgmt_info.nat_type = self.nat_type
+            # Set the device external IP
+            request.mgmt_info.device_external_ip = self.external_ip
+            # Set the device external port
+            request.mgmt_info.device_external_port = self.external_port
+            # Set the VXLAN port
+            request.mgmt_info.vxlan_port = self.vxlan_port
+            # Destroy old management interfaces, before creating the new one
+            if self.tunnel_device_endpoint_end_configured:
+                # Management interface already configured
+                # We need to destroy it before creating a new one
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                    self.deviceid, self.tenantid)
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot destroy the management interface')
+                    return res
+            if self.tunnel_device_endpoint_configured:
+                # Management interface already configured
+                # We need to destroy it before creating a new one
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+                    self.deviceid, self.tenantid)
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot destroy the management interface')
+                    return res
             # Create the tunnel
             logging.info('Creating the tunnel for the device')
-            if self.vtep_configured:
-                self.tunnel_mode.destroy_tunnel_device_endpoint(
-                    tunnel_info)
-            self.tunnel_mode.create_tunnel_device_endpoint(tunnel_info)
+            res, device_vtep_mac = \
+                self.tunnel_mode.create_tunnel_device_endpoint(
+                    deviceid=self.deviceid,
+                    tenantid=self.tenantid,
+                    vxlan_port=self.vxlan_port,
+                )
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Cannot create the management interface')
+                return res
+            self.tunnel_device_endpoint_configured = True
+            # Set the MAC address of the device's VTEP
+            if device_vtep_mac is not None:
+                request.mgmt_info.device_vtep_mac = device_vtep_mac
             # Send the update tunnel mode request
             logging.info('Sending the update tunnel mode request')
-            response = stub.UpdateTunnelMode(request)
+            response = stub.UpdateMgmtInfo(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
-                # Tunnel mode established
-                tunnel_info = response.tunnel_info
+                # Extract IP address of the controller's VTEP
+                controller_vtep_ip = response.mgmt_info.controller_vtep_ip
+                # Extract IP address of the device's VTEP
+                device_vtep_ip = response.mgmt_info.device_vtep_ip
+                # Extract mask of the VTEP
+                vtep_mask = response.mgmt_info.vtep_mask
+                # Extract MAC address of the controller's VTEP
+                controller_vtep_mac = response.mgmt_info.controller_vtep_mac
                 # Create the tunnel
                 logging.info('Finalizing tunnel configuration')
-                # if tunnel_mode_changed:
-                self.tunnel_mode.create_tunnel_device_endpoint_end(
-                    tunnel_info)
-                self.vtep_configured = True
-                # else:
-                #    self.tunnel_mode.update_tunnel_device_endpoint_end(
-                #        tunnel_info)
+                res = self.tunnel_mode.create_tunnel_device_endpoint_end(
+                    deviceid=self.deviceid,
+                    tenantid=self.tenantid,
+                    controller_vtep_ip=controller_vtep_ip,
+                    device_vtep_ip=device_vtep_ip, vtep_mask=vtep_mask,
+                    controller_vtep_mac=controller_vtep_mac
+                )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot create the management interface')
+                    return res
+                self.tunnel_device_endpoint_end_configured = True
                 # Get the controller address
                 self.controller_mgmtip = \
                     self.tunnel_mode.get_controller_mgmtip()
                 if self.controller_mgmtip is None:
+                    # If the tunnel mode does not specifies any mgmt IP
+                    # for the controller we use the public IP address
                     self.controller_mgmtip = self.server_ip
                 # Send a keep-alive messages to keep the tunnel opened,
                 # if required
@@ -464,7 +410,8 @@ class PymerangDevice:
                     Thread(target=utils.start_keep_alive_icmp,
                            args=(self.controller_mgmtip,
                                  self.keep_alive_interval,
-                                 3, self.update_tunnel_mode
+                                 self.max_keep_alive_lost,
+                                 self.update_mgmt_info
                                  ),
                            daemon=False
                            ).start()
@@ -479,48 +426,69 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s' % response.status)
                 return
 
-    def update_tunnel_mode(self):
+    def update_mgmt_info(self):
         while True:
             try:
-                return self._update_tunnel_mode()
+                # Try to update tunnel mode
+                return self._update_mgmt_info()
             except grpc.RpcError as e:
                 status_code = e.code()
                 details = e.details()
                 if grpc.StatusCode.UNAVAILABLE == status_code:
+                    # If the controller is not reachable,
+                    # retry after X seconds
                     logging.error('Unable to contact controller '
                                   '(unreachable gRPC server): %s\n\n'
                                   'Retrying in %s seconds'
                                   % (details, GRPC_RETRY_INTERVAL))
                     time.sleep(GRPC_RETRY_INTERVAL)
                 else:
-                    logging.error('Error in update_tunnel_mode: '
+                    logging.error('Error in update_mgmt_info: '
                                   '%s - %s' % (status_code, details))
-                    return
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR
 
     def register_device(self):
         while True:
             try:
+                # Try to register device
                 return self._register_device()
             except grpc.RpcError as e:
                 status_code = e.code()
                 details = e.details()
                 if grpc.StatusCode.UNAVAILABLE == status_code:
+                    # If the controller is not reachable,
+                    # retry after X seconds
                     logging.error('Unable to contact controller '
                                   '(unreachable gRPC server): %s\n\n'
                                   'Retrying in %s seconds'
                                   % (details, GRPC_RETRY_INTERVAL))
                     time.sleep(GRPC_RETRY_INTERVAL)
                 else:
-                    logging.error('Error in update_tunnel_mode: '
+                    logging.error('Error in update_mgmt_info: '
                                   '%s - %s' % (status_code, details))
-                    return
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR
 
     def shutdown_device(self):
+        # Wait until a termination signal is received
         self.stop_event.wait()
+        # Received termination signal
         logging.info('Received shutdown command. '
                      'Destroying management interface')
-        self.tunnel_mode.destroy_tunnel_device_endpoint(self.device_id)
+        # Remove the management interface
+        res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+            self.deviceid, self.tenantid)
+        if res != status_codes_pb2.STATUS_SUCCESS:
+            logging.error('Error during '
+                          'destroy_tunnel_device_endpoint_end')
+            return res
+        res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+            self.deviceid, self.tenantid)
+        if res != status_codes_pb2.STATUS_SUCCESS:
+            logging.error('Error during '
+                          'destroy_tunnel_device_endpoint_end')
+            return res
         logging.info('Management interface destroyed')
+        return status_codes_pb2.STATUS_SUCCESS
 
     def run(self):
         logging.info('Client started')
@@ -529,14 +497,14 @@ class PymerangDevice:
         # Register the device
         if self.register_device() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in device registration')
-            return
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Start NAT discovery procedure
         self.run_nat_discovery()
         # Update tunnel mode
-        if self.update_tunnel_mode() != \
+        if self.update_mgmt_info() != \
                 status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in update tunnel mode')
-            return
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
 
 
 # Parse options
@@ -598,6 +566,12 @@ def parse_arguments():
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
     )
+    # Max keep alive lost
+    parser.add_argument(
+        '-x', '--max-keep-alive-lost', dest='max_keep_alive_lost',
+        default=DEFAULT_MAX_KEEP_ALIVE_LOST,
+        help='Max keep alive lost'
+    )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
         '-t', '--token-file', dest='token_file',
@@ -648,11 +622,22 @@ if __name__ == '__main__':
     config_file = args.config_file
     # Interval between two consecutive keep alive messages
     keep_alive_interval = args.keep_alive_interval
+    # Max keep alive lost
+    max_keep_alive_lost = args.max_keep_alive_lost
     # File containing the token used for the authentication
     token_file = args.token_file
     # Start client
-    client = PymerangDevice(server_ip, server_port, nat_discovery_server_ip,
-                            nat_discovery_server_port, nat_discovery_client_ip,
-                            nat_discovery_client_port, config_file,
-                            token_file, keep_alive_interval, debug)
+    client = PymerangDevice(
+        server_ip=server_ip,
+        server_port=server_port,
+        nat_discovery_server_ip=nat_discovery_server_ip,
+        nat_discovery_server_port=nat_discovery_server_port,
+        nat_discovery_client_ip=nat_discovery_client_ip,
+        nat_discovery_client_port=nat_discovery_client_port,
+        config_file=config_file,
+        token_file=token_file,
+        keep_alive_interval=keep_alive_interval,
+        max_keep_alive_lost=max_keep_alive_lost,
+        stop_event=None,
+        debug=debug)
     client.run()

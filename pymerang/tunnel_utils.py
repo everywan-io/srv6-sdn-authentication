@@ -207,54 +207,75 @@ class TunnelMode:
         # # self.device_to_mac_addr = dict()
 
     # Invoked on the device, before the registration request
-    def create_tunnel_device_endpoint(self, tunnel_info):
+    def create_tunnel_device_endpoint(self, deviceid, tenantid, vxlan_port):
         raise NotImplementedError
 
     # Invoked on the device, after the controller reply
-    def create_tunnel_device_endpoint_end(self, tunnel_info):
+    def create_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         raise NotImplementedError
 
     # Invoked on the controller, when the registration request is received
-    def create_tunnel_controller_endpoint(self, tunnel_info):
+    def create_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          vxlan_port,
+                                          device_vtep_mac):
         raise NotImplementedError
 
     # Invoked on the device, when the tunnel has to be destroyed
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint(self, deviceid, tenantid):
+        raise NotImplementedError
+
+    # Invoked on the device, when the tunnel has to be destroyed
+    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid):
         raise NotImplementedError
 
     # Invoked on the controller, when the tunnel has to be destroyed
-    def destroy_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_controller_endpoint(self, deviceid, tenantid):
         raise NotImplementedError
 
     # Invoked on the device, before the update request
-    def update_tunnel_device_endpoint(self, tunnel_info):
+    def update_tunnel_device_endpoint(self, deviceid, tenantid,
+                                      controller_vtep_ip,
+                                      device_vtep_ip, vtep_mask,
+                                      controller_vtep_mac):
         raise NotImplementedError
 
     # Invoked on the device, after the controller reply
-    def update_tunnel_device_endpoint_end(self, tunnel_info):
+    def update_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         raise NotImplementedError
 
     # Invoked on the controller, when the update request is received
-    def update_tunnel_controller_endpoint(self, tunnel_info):
+    def update_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          device_vtep_mask, vxlan_port,
+                                          device_vtep_mac):
         raise NotImplementedError
 
     # # Return the private IPv6 of the device
-    # def get_device_mgmtipv6(self, tenantid, device_id):
+    # def get_device_mgmtipv6(self, tenantid, deviceid):
     #     if tenantid not in self.device_to_mgmt_ipv6:
     #         return None
-    #     return self.device_to_mgmt_ipv6[tenantid].get(device_id)
+    #     return self.device_to_mgmt_ipv6[tenantid].get(deviceid)
 
     # # Return the private IPv4 of the device
-    # def get_device_mgmtipv4(self, tenantid, device_id):
+    # def get_device_mgmtipv4(self, tenantid, deviceid):
     #     if tenantid not in self.device_to_mgmt_ipv4:
     #         return None
-    #     return self.device_to_mgmt_ipv4[tenantid].get(device_id)
+    #     return self.device_to_mgmt_ipv4[tenantid].get(deviceid)
 
     # # Return the private IP of the device
-    # def get_device_mgmtip(self, tenantid, device_id):
-    #     addr = self.get_device_mgmtipv4(tenantid, device_id)
+    # def get_device_mgmtip(self, tenantid, deviceid):
+    #     addr = self.get_device_mgmtipv4(tenantid, deviceid)
     #     if addr is None:
-    #         addr = self.get_device_mgmtipv6(tenantid, device_id)
+    #         addr = self.get_device_mgmtipv6(tenantid, deviceid)
     #     return addr
 
     # # Return the public IP of the controller
@@ -289,75 +310,75 @@ class TunnelMode:
 
     # # Allocate a new private IPv4 address for the device
     # # If the device already has a IPv4 address, return it
-    # def get_new_mgmt_ipv4(self, device_id, tenantid):
-    #     if device_id in self.device_to_mgmt_ipv4[tenantid]:
-    #         return self.device_to_mgmt_ipv4[tenantid][device_id]
+    # def get_new_mgmt_ipv4(self, deviceid, tenantid):
+    #     if deviceid in self.device_to_mgmt_ipv4[tenantid]:
+    #         return self.device_to_mgmt_ipv4[tenantid][deviceid]
     #     elif len(self.reusable_ipv4_addresses) > 0:
     #         addr = self.reusable_ipv4_addresses.pop()
     #     else:
     #         addr = '%s/%s' % (self.ipv4_address_allocator.nextAddress(),
     #                           self.ipv4_address_allocator.prefix)
-    #     self.device_to_mgmt_ipv4[tenantid][device_id] = addr
+    #     self.device_to_mgmt_ipv4[tenantid][deviceid] = addr
     #     return addr
 
     # # Allocate a new private IPv6 address for the device
     # # If the device already has a IPv4 address, return it
-    # def get_new_mgmt_ipv6(self, device_id, tenantid):
-    #     if device_id in self.device_to_mgmt_ipv6[tenantid]:
-    #         return self.device_to_mgmt_ipv6[tenantid][device_id]
+    # def get_new_mgmt_ipv6(self, deviceid, tenantid):
+    #     if deviceid in self.device_to_mgmt_ipv6[tenantid]:
+    #         return self.device_to_mgmt_ipv6[tenantid][deviceid]
     #     elif len(self.reusable_ipv6_addresses) > 0:
     #         addr = self.reusable_ipv6_addresses.pop()
     #     else:
     #         addr = '%s/%s' % (self.ipv6_address_allocator.nextAddress(),
     #                           self.ipv6_address_allocator.prefix)
-    #     self.device_to_mgmt_ipv6[tenantid][device_id] = addr
+    #     self.device_to_mgmt_ipv6[tenantid][deviceid] = addr
     #     return addr
 
     # # Release the IPv4 address associated to the device
-    # def release_ipv4_address(self, device_id, tenantid):
-    #     addr = self.device_to_mgmt_ipv4[tenantid].pop(device_id, None)
+    # def release_ipv4_address(self, deviceid, tenantid):
+    #     addr = self.device_to_mgmt_ipv4[tenantid].pop(deviceid, None)
     #     if addr is not None:
     #         self.reusable_ipv4_addresses.add(addr)
 
     # # Release the IPv6 address associated to the device
-    # def release_ipv6_address(self, device_id, tenantid):
-    #     addr = self.device_to_mgmt_ipv6[tenantid].pop(device_id, None)
+    # def release_ipv6_address(self, deviceid, tenantid):
+    #     addr = self.device_to_mgmt_ipv6[tenantid].pop(deviceid, None)
     #     if addr is not None:
     #         self.reusable_ipv6_addresses.add(addr)
 
     # # Get a new private IPv4 net for the device-controller communication
     # # If the device already has a IPv4 net, return it
-    # def get_new_mgmt_ipv4_net(self, device_id):
-    #     if device_id in self.device_to_ipv4_net:
-    #         return self.device_to_ipv4_net[device_id]
+    # def get_new_mgmt_ipv4_net(self, deviceid):
+    #     if deviceid in self.device_to_ipv4_net:
+    #         return self.device_to_ipv4_net[deviceid]
     #     elif len(self.reusable_ipv4_nets) > 0:
     #         net = self.reusable_ipv4_nets.pop()
     #     else:
     #         net = self.ipv4_net_allocator.nextNet()
-    #     self.device_to_ipv4_net[device_id] = net
+    #     self.device_to_ipv4_net[deviceid] = net
     #     return net
 
     # # Get a new private IPv6 net for the device-controller communication
     # # If the device already has a IPv6 net, return it
-    # def get_new_mgmt_ipv6_net(self, device_id):
-    #     if device_id in self.device_to_ipv6_net:
-    #         return self.device_to_ipv6_net[device_id]
+    # def get_new_mgmt_ipv6_net(self, deviceid):
+    #     if deviceid in self.device_to_ipv6_net:
+    #         return self.device_to_ipv6_net[deviceid]
     #     elif len(self.reusable_ipv6_nets) > 0:
     #         net = self.reusable_ipv6_nets.pop()
     #     else:
     #         net = self.ipv6_net_allocator.nextNet()
-    #     self.device_to_ipv6_net[device_id] = net
+    #     self.device_to_ipv6_net[deviceid] = net
     #     return net
 
     # # Release the IPv4 net associated to the device
-    # def release_ipv4_net(self, device_id):
-    #     net = self.device_to_ipv4_net.pop(device_id, None)
+    # def release_ipv4_net(self, deviceid):
+    #     net = self.device_to_ipv4_net.pop(deviceid, None)
     #     if net is not None:
     #         self.reusable_ipv4_nets.add(net)
 
     # # Release the IPv6 net associated to the device
-    # def release_ipv6_net(self, device_id):
-    #     net = self.device_to_ipv6_net.pop(device_id, None)
+    # def release_ipv6_net(self, deviceid):
+    #     net = self.device_to_ipv6_net.pop(deviceid, None)
     #     if net is not None:
     #         self.reusable_ipv6_nets.add(net)
 
@@ -367,5 +388,5 @@ class TunnelMode:
     #         len(self.device_to_mgmt_ipv4.get(tenantid, set()))
 
     # # Get the MAC address of the VTEP
-    # def get_device_vtep_mac(self, device_id):
-    #     return self.device_to_mac_addr.get(device_id) 
+    # def get_device_vtep_mac(self, deviceid):
+    #     return self.device_to_mac_addr.get(deviceid)
