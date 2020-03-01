@@ -4,10 +4,12 @@
 from __future__ import print_function
 from argparse import ArgumentParser
 from threading import Thread
+from socket import AF_INET, AF_INET6
 import logging
 import pynat
 import grpc
 import json
+import sys
 import time
 # ipaddress dependencies
 from ipaddress import IPv4Address, IPv6Address
@@ -42,6 +44,10 @@ DEFAULT_MAX_KEEP_ALIVE_LOST = 3
 DEFAULT_VXLAN_PORT = 4789
 # File containing the token
 DEFAULT_TOKEN_FILE = 'token'
+# Define wheter to use SSL or not
+DEFAULT_SECURE = False
+# SSL cerificate for server validation
+DEFAULT_CERTIFICATE = 'cert_client.pem'
 # GRPC retry interval (in seconds)
 GRPC_RETRY_INTERVAL = 10
 
@@ -53,6 +59,7 @@ class PymerangDevice:
                  nat_discovery_client_port, config_file, token_file,
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
+                 secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -95,6 +102,14 @@ class PymerangDevice:
             self.token = self.token.rstrip('\n')
         # Tunnel state
         self.tunnel_state = None
+        # Secure mode
+        self.secure = secure
+        if secure is True:
+            if certificate is None:
+                logging.error('Error: "certificate" variable cannot be None '
+                              'in secure mode')
+                sys.exit(-2)
+            self.certificate = certificate
         # Interfaces on the device
         self.interfaces = list()
         # Flags indicating if the management interface has been configured
@@ -106,6 +121,29 @@ class PymerangDevice:
         self.stop_event = stop_event
         # Start thread listening for device shutdown
         Thread(target=self.shutdown_device).start()
+
+    # Build a grpc stub
+    def get_grpc_session(self, ip_address, port):
+        # Get the address of the server
+        if utils.getAddressFamily(ip_address) == AF_INET6:
+            server_address = '[%s]:%s' % (ip_address, port)
+        elif utils.getAddressFamily(ip_address) == AF_INET:
+            server_address = '%s:%s' % (ip_address, port)
+        else:
+            logging.critical('Invalid address %s' % self.server_ip)
+            return
+        # If secure we need to establish a channel with the secure endpoint
+        if self.secure:
+            # Open the certificate file
+            with open(self.certificate, 'rb') as f:
+                certificate = f.read()
+            # Then create the SSL credentials and establish the channel
+            grpc_client_credentials = grpc.ssl_channel_credentials(certificate)
+            channel = grpc.secure_channel(server_address,
+                                          grpc_client_credentials)
+        else:
+            channel = grpc.insecure_channel(server_address)
+        return channel
 
     def run_nat_discovery(self):
         # Run the stun test to discover the NAT type
@@ -213,14 +251,9 @@ class PymerangDevice:
         self.tunnel_mode = tunnel_mode
 
     def _register_device(self):
-        # Generate server address string from IP and port
-        server_address = utils.get_server_address(
-            self.server_ip, self.server_port)
-        if server_address is None:
-            logging.critical('Invalid address %s' % self.server_ip)
-            return
         # Establish a gRPC connection to the controller
-        with grpc.insecure_channel(server_address) as channel:
+        with self.get_grpc_session(self.server_ip,
+                                   self.server_port) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Start registration procedure
@@ -278,14 +311,9 @@ class PymerangDevice:
                 return response.status
 
     def _update_mgmt_info(self):
-        # Generate server address string from IP and port
-        server_address = utils.get_server_address(
-            self.server_ip, self.server_port)
-        if server_address is None:
-            logging.critical('Invalid address %s' % self.server_ip)
-            return
         # Establish a gRPC connection to the controller
-        with grpc.insecure_channel(server_address) as channel:
+        with self.get_grpc_session(self.server_ip,
+                                   self.server_port) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Prepare the registration message
@@ -529,12 +557,12 @@ def parse_arguments():
     )
     # File containing the configuration of the device
     parser.add_argument(
-        '-c', '--config-file', dest='config_file',
+        '-f', '--config-file', dest='config_file',
         default=DEFAULT_CONFIG_FILE, help='Config file'
     )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
-        '-k', '--keep-alive-interval', dest='keep_alive_interval',
+        '-a', '--keep-alive-interval', dest='keep_alive_interval',
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
     )
@@ -549,6 +577,11 @@ def parse_arguments():
         '-t', '--token-file', dest='token_file',
         default=DEFAULT_TOKEN_FILE,
         help='File containing the token used for the authentication'
+    )
+    # Server certificate file
+    parser.add_argument(
+        '-c', '--certificate', store='certificate', action='store',
+        default=DEFAULT_CERTIFICATE, help='Server certificate file'
     )
     # Parse input parameters
     args = parser.parse_args()
@@ -571,6 +604,8 @@ if __name__ == '__main__':
         secure = True
     else:
         secure = False
+    # Server certificate file
+    certificate = args.certificate
     # Server IP
     server_ip = args.server_ip
     # Server port
