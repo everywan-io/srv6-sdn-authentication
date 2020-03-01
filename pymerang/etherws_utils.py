@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import pyroute2
 import logging
 import pynat
 from socket import AF_INET, AF_INET6
@@ -10,6 +11,11 @@ from ipaddress import IPv6Network, IPv4Network
 from pymerang import etherws
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
+from srv6_sdn_controller_state import srv6_sdn_controller_state
+
+
+# Global variables
+NO_SUCH_FILE_OR_DIRECTORY = 2
 
 
 '''
@@ -129,8 +135,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
 
     ''' Ethernet over Websocket tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip,
-                 ipv6_net_allocator, ipv4_net_allocator, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False):
         # etherws tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -150,10 +155,6 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                          supported_nat_types=supported_nat_types,
                          priority=priority,
                          controller_ip=controller_ip,
-                         ipv6_net_allocator=ipv6_net_allocator,
-                         ipv4_net_allocator=ipv4_net_allocator,
-                         ipv6_address_allocator=None,
-                         ipv4_address_allocator=None,
                          debug=debug)
 
     def create_tunnel_device_endpoint(self, tunnel_info):
@@ -206,7 +207,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
             vtep_mask = net.prefixlen
         #elif family == AF_INET:       # TODO handle IPv6
         else:
-            net = self.get_new_mgmt_ipv4_net(device_id)
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv4_net(device_id)
             net = IPv4Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
@@ -227,6 +228,12 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                       % (controller_vtep_ip, vtep_mask, tap_name))
         tunnel_utils.add_address(device=tap_name,
                                  address=controller_vtep_ip, mask=vtep_mask)
+        # Update device VTEP IP address
+        success = srv6_sdn_controller_state.update_device_vtep_ip(
+            device_id, device_vtep_ip)
+        if success is not True:
+            logging.error('Error while updating device VTEP IP address')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Update and return the tunnel info
         tunnel_info.controller_vtep_ip = controller_vtep_ip
         tunnel_info.device_vtep_ip = device_vtep_ip
@@ -235,12 +242,10 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         logging.debug('The etherws tunnel has been configured')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint(self, deviceid):
         logging.info('Destroying the etherws tunnel')
-        # Extract the device ID
-        device_id = tunnel_info.device_id
         # Delete the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
         tunnel_utils.delete_interface(device=tap_name)
         # del_etherws_port(1)
         # Delete the websocket interface
@@ -257,12 +262,19 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         device_id = tunnel_info.device_id
         # Delete the TAP interface
         tap_name = '%s-%s' % (self.name, device_id[:3])
-        tunnel_utils.delete_interface(device=tap_name)
+        try:
+            tunnel_utils.delete_interface(device=tap_name)
+        except pyroute2.netlink.exceptions.NetlinkError as e:
+            if e.code == NO_SUCH_FILE_OR_DIRECTORY:
+                logging.warning('Skipping remove_ip_neigh: %s' % e)
+            else:
+                logging.error('Error in remove_ip_neigh: %s' % e)
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Delete the TAP interface
         # del_etherws_port(1)
         # Release the private IP address associated to the device
-        self.release_ipv4_address(device_id)
-        self.release_ipv6_address(device_id)
+        srv6_sdn_controller_state.release_ipv4_net(device_id)
+        srv6_sdn_controller_state.release_ipv6_net(device_id)
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 

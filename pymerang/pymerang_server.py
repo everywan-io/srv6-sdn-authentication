@@ -49,6 +49,11 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         #
         # Device ID
         device_id = request.device.id
+        # Check if the device exists
+        #if device_id not in self.controller.devices:
+        #    logging.debug('Unauthorized')
+        #    return (pymerang_pb2
+        #            .RegisterDeviceReply(status=STATUS_UNAUTHORIZED))
         # Features supported by the device
         features = list()
         for feature in request.device.features:
@@ -92,7 +97,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
         # Register the device
         logging.debug('Trying to register the device %s' % device_id)
-        response, tunnel_info, port = self.controller.register_device(
+        response, tunnel_info, port, tenantid = self.controller.register_device(
             device_id, features, interfaces,
             mgmtip, auth_data, reply.tunnel_info
         )
@@ -103,6 +108,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         reply.status = STATUS_SUCCESS
         reply.vxlan_port = port
         reply.tunnel_info.vxlan_port = port
+        reply.tunnel_info.tenantid = tenantid
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -141,17 +147,13 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         # Prepare the response message
         reply = pymerang_pb2.RegisterDeviceReply()
         reply.tunnel_info.device_id = tunnel_info.device_id
+        reply.tunnel_info.tenantid = tunnel_info.tenantid
         reply.tunnel_info.tunnel_mode = tunnel_info.tunnel_mode
         reply.tunnel_info.device_external_ip = tunnel_info.device_external_ip
         reply.tunnel_info.device_external_port = \
             tunnel_info.device_external_port
         reply.tunnel_info.device_vtep_mac = tunnel_info.device_vtep_mac
         reply.tunnel_info.vxlan_port = tunnel_info.vxlan_port
-        # Check if the device exists
-        if device_id not in self.controller.devices:
-            logging.debug('Unauthorized')
-            return (pymerang_pb2
-                    .RegisterDeviceReply(status=STATUS_UNAUTHORIZED))
         # Register the device
         logging.debug('Trying to register the device %s' % device_id)
         response, tunnel_info = self.controller.update_tunnel_mode(
@@ -273,6 +275,38 @@ class PymerangController:
         # Controller state
         self.controller_state = controller_state
 
+    # Restore management interfaces, if any
+    def restore_mgmt_interfaces(self):
+        logging.info('*** Restoring management interfaces')
+        tunnel_info = pymerang_pb2.TunnelInfo()
+        # Get all the devices
+        devices = srv6_sdn_controller_state.get_devices()
+        if devices is None:
+            logging.error('Cannot retrieve devices list')
+            return
+        for device in devices:
+            tunnel_mode = device['tunnel_mode']
+            tunnel_info.device_id = device['deviceid']
+            if device.get('external_ip') is not None:
+                tunnel_info.device_external_ip = device['external_ip']
+            if device.get('external_port') is not None:
+                tunnel_info.device_external_port = device['external_port']
+            if device.get('mgmt_mac') is not None:
+                tunnel_info.device_vtep_mac = device['mgmt_mac']
+            if device.get('vxlan_port') is not None:
+                tunnel_info.vxlan_port = device['vxlan_port']
+            if tunnel_mode is not None:
+                logging.info('Restoring management interface for device %s'
+                             % device['deviceid'])
+                # Create tunnel controller endpoint
+                tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+                res = tunnel_mode.create_tunnel_controller_endpoint(
+                    tunnel_info)
+                if res != STATUS_SUCCESS:
+                    logging.warning('Cannot restore the tunnel on device %s'
+                                    % device['deviceid'])
+                    return res, None
+
     # Authenticate a device
     def authenticate_device(self, device_id, auth_data):
         logging.info('Authenticating the device %s' % device_id)
@@ -296,7 +330,7 @@ class PymerangController:
             device_id, auth_data)
         if not authenticated:
             logging.info('Authentication failed for the device %s' % device_id)
-            return STATUS_UNAUTHORIZED, None, None
+            return STATUS_UNAUTHORIZED, None, None, None
         # Register the device
         self.devices[device_id] = {
             'features': features,
@@ -314,14 +348,14 @@ class PymerangController:
         config = srv6_sdn_controller_state.get_tenant_config(tenantid)
         if config is None:
             logging.error('Tenant not found or error while connecting to the db')
-            return STATUS_INTERNAL_ERROR, None, None
+            return STATUS_INTERNAL_ERROR, None, None, None
         # Set the port
         port = config.get('vxlan_port', DEFAULT_VXLAN_PORT)
         if port is None:
             port = tunnel_info.device_external_port
         # Success
         logging.debug('New device registered:\n%s' % self.devices[device_id])
-        return STATUS_SUCCESS, tunnel_info, port
+        return STATUS_SUCCESS, tunnel_info, port, tenantid
 
     # Update tunnel mode
     def update_tunnel_mode(self, device_id, interfaces, mgmtip,
@@ -330,35 +364,41 @@ class PymerangController:
         
         tunnel_name = tunnel_mode
         
+        deviceid = tunnel_info.device_id
+        tenantid = tunnel_info.tenantid
+        
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
-        old_tunnel_mode = self.devices[device_id]['tunnel_mode']
+        #old_tunnel_mode = self.devices[device_id]['tunnel_mode']
+        old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(deviceid)
         if old_tunnel_mode is not None:
-            old_tunnel_mode = utils.REVERSE_TUNNEL_MODES[old_tunnel_mode]
+            #old_tunnel_mode = utils.REVERSE_TUNNEL_MODES[old_tunnel_mode]
             old_tunnel_mode = self.tunnel_state.tunnel_modes[old_tunnel_mode]
-            old_tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
-            self.devices[device_id]['tunnel_mode'] = None
+            old_tunnel_mode.destroy_tunnel_controller_endpoint(deviceid, tenantid)
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, None)
+            #self.devices[device_id]['tunnel_mode'] = None
+            
         # Get the tunnel mode requested by the device
         tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
         # Get the tenant ID
-        tenantid = self.devices[device_id]['tenantid']
-        tunnel_info.tenantid = tenantid
+        #tenantid = self.devices[device_id]['tenantid']
+        #tunnel_info.tenantid = tenantid
         # Create the tunnel
         logging.info('Trying to create the tunnel for the device %s'
                      % device_id)
         res = tunnel_mode.create_tunnel_controller_endpoint(tunnel_info)
         if res != STATUS_SUCCESS:
             logging.warning('Cannot create the tunnel')
-            return
+            return res, None
         # Store tunnel mode
-        self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
+        #self.devices[device_id]['tunnel_mode'] = tunnel_info.tunnel_mode
         # Store tunnel info
-        self.devices[device_id]['tunnel_info'] = tunnel_info
+        #self.devices[device_id]['tunnel_info'] = tunnel_info
         # If a private IP address is present, use it as mgmt address
-        if tunnel_mode.get_device_mgmtip(tenantid, device_id) is not None:
-            mgmtip = tunnel_mode.get_device_mgmtip(tenantid, device_id).split('/')[0]
-            self.devices[device_id]['mgmtip'] = mgmtip
+        if srv6_sdn_controller_state.get_device_mgmtip(tenantid, device_id) is not None:
+            mgmtip = srv6_sdn_controller_state.get_device_mgmtip(tenantid, device_id).split('/')[0]
+            #self.devices[device_id]['mgmtip'] = mgmtip
         # Update mapping device to tunnel mode
         self.device_to_tunnel_mode[device_id] = tunnel_mode
         # Send a keep-alive messages to keep the tunnel opened,
@@ -382,9 +422,16 @@ class PymerangController:
         #    self.devices[device_id]['interfaces'][name]['ext_ipv4_addrs'] = ext_ipv4_addrs
         #    self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
-        # Update controller state
-        srv6_sdn_controller_state.update_tunnel_mode(device_id, mgmtip, interfaces, tunnel_name, nat_type)
+        device_external_ip = tunnel_info.device_external_ip
+        device_external_port = tunnel_info.device_external_port
+        device_vtep_mac = tunnel_info.device_vtep_mac
+        vxlan_port = tunnel_info.vxlan_port
 
+        # Update controller state
+        srv6_sdn_controller_state.update_tunnel_mode(
+            device_id, mgmtip, interfaces, tunnel_name,
+            nat_type, device_external_ip,
+            device_external_port, device_vtep_mac, vxlan_port)
 
         # Update the management IP address
         # if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
@@ -392,7 +439,7 @@ class PymerangController:
         #self.devices[device_id]['mgmtip'] = mgmtip
         # Success
         logging.debug('Updated device registration: %s' %
-                      self.devices[device_id])
+                      deviceid)
         return STATUS_SUCCESS, tunnel_info
 
     def unregister_device(self, device_id, tunnel_info):
@@ -449,7 +496,7 @@ class PymerangController:
         # Destroy the tunnel
         logging.debug(
             'Trying to destroy the tunnel for the device %s' % device_id)
-        tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
+        tunnel_mode.destroy_tunnel_controller_endpoint(device_id, tenantid)
         # Success
         logging.debug('Device unregistered: %s' % device_id)
         return STATUS_SUCCESS, tunnel_info
@@ -457,6 +504,8 @@ class PymerangController:
     def serve(self):
         # Initialize tunnel state
         self.tunnel_state = utils.TunnelState(self.server_ip)
+        # Restore management interfaces, if any
+        self.restore_mgmt_interfaces()
         # Start gRPC server
         server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
         pymerang_pb2_grpc.add_PymerangServicer_to_server(
@@ -503,7 +552,7 @@ def parse_arguments():
     )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
-        '-k', '--keep-alive-interval', dest='kee_alive_interval',
+        '-k', '--keep-alive-interval', dest='keep_alive_interval',
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
     )
