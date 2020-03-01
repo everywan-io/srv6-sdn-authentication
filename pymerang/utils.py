@@ -10,20 +10,11 @@ import socket
 import time
 from ping3 import ping
 from pyroute2 import IPRoute
+from socket import AF_INET, AF_INET6
 # pymerang dependencies
 from pymerang import no_tunnel
 from pymerang import vxlan_utils
 from pymerang import etherws_utils
-from pymerang import pymerang_pb2
-
-# Tunnel modes
-TUNNEL_MODES = {
-    'no_tunnel': pymerang_pb2.TunnelMode.no_tunnel,
-    'vxlan': pymerang_pb2.TunnelMode.vxlan,
-    'etherws': pymerang_pb2.TunnelMode.etherws
-}
-
-REVERSE_TUNNEL_MODES = {v: k for k, v in TUNNEL_MODES.items()}
 
 # NAT types
 NAT_TYPES = [
@@ -49,6 +40,16 @@ class DeviceStatus:
     NOT_CONNECTED = 'Not Connected'
     CONNECTED = 'Connected'
     RUNNING = 'Running'
+
+
+# Generate server address string from IP and port
+def get_server_address(ip, port):
+    server_address = None
+    if getAddressFamily(ip) == AF_INET6:
+        server_address = '[%s]:%s' % (ip, port)
+    elif getAddressFamily(ip) == AF_INET:
+        server_address = '%s:%s' % (ip, port)
+    return server_address
 
 
 # Utiliy function to check if the IP
