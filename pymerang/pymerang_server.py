@@ -182,11 +182,14 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         if controller_vtep_mac is not None:
             reply.mgmt_info.controller_vtep_mac = controller_vtep_mac
         # Set the controller VTEP IP
-        reply.mgmt_info.controller_vtep_ip = controller_vtep_ip
+        if controller_vtep_ip is not None:
+            reply.mgmt_info.controller_vtep_ip = controller_vtep_ip
         # Set the device VTEP IP
-        reply.mgmt_info.device_vtep_ip = device_vtep_ip
+        if device_vtep_ip is not None:
+            reply.mgmt_info.device_vtep_ip = device_vtep_ip
         # Set the VTEP mask
-        reply.mgmt_info.vtep_mask = vtep_mask
+        if vtep_mask is not None:
+            reply.mgmt_info.vtep_mask = vtep_mask
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
