@@ -32,26 +32,48 @@ class NoTunnel(tunnel_utils.TunnelMode):
                          controller_ip=controller_ip,
                          debug=debug)
 
-    def create_tunnel_device_endpoint(self, tunnel_info):
+    def create_tunnel_device_endpoint(self, deviceid, tenantid, vxlan_port):
+        return status_codes_pb2.STATUS_SUCCESS, None
+
+    def create_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def create_tunnel_device_endpoint_end(self, tunnel_info):
+    def create_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          vxlan_port,
+                                          device_vtep_mac):
+        return status_codes_pb2.STATUS_SUCCESS, None, None, None, None
+
+    def update_tunnel_device_endpoint(self, deviceid, tenantid,
+                                      controller_vtep_ip,
+                                      device_vtep_ip, vtep_mask,
+                                      controller_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def create_tunnel_controller_endpoint(self, tunnel_info):
+    def update_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def update_tunnel_device_endpoint(self, tunnel_info):
+    def update_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          device_vtep_mask, vxlan_port,
+                                          device_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def update_tunnel_device_endpoint_end(self, tunnel_info):
+    def destroy_tunnel_device_endpoint(self, deviceid, tenantid,
+                                       controller_vtep_ip,
+                                       controller_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def update_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
-        return status_codes_pb2.STATUS_SUCCESS
-
-    def destroy_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_controller_endpoint(self, deviceid, tenantid):
         return status_codes_pb2.STATUS_SUCCESS

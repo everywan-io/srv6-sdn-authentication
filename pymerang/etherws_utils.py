@@ -217,7 +217,8 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                           device_external_ip)
             # (status_code, controller_vtep_mac,
             #      controller_vtep_ip, device_vtep_ip, vtep_mask)
-            return status_codes_pb2.STATUS_INTERNAL_ERROR, None, None, None
+            return (status_codes_pb2.STATUS_INTERNAL_ERROR,
+                    None, None, None, None)
         # else:
         #    logging.error('Invalid family address: %s' %
         #                  tunnel_info.device_external_ip)
