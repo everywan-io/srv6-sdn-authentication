@@ -218,7 +218,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         port = tunnel_info.vxlan_port
         # Extract the tenant ID
         #tenantid = tunnel_info.tenantid
-        tenantid = '0'
+        _tenantid = '0'
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Create the VXLAN interface
@@ -265,7 +265,12 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                                      address=controller_vtep_ipv4,
                                      mask=vtep_mask_ipv4)
         # Save the MAC address of the device's VTEP
-        self.device_to_mac_addr[device_id] = device_vtep_mac
+        srv6_sdn_controller_state.update_device_vtep_mac(
+            deviceid, tenantid, device_vtep_mac)
+        # Init VXLAN tunnel mode
+        if not self.initiated:
+            self.init_tunnel_controller_endpoint()
+            self.initiated = True
         # Generate private address for the device VTEP
         family = tunnel_utils.getAddressFamily(tunnel_info.device_external_ip)
         if family == socket.AF_INET6:
@@ -302,9 +307,14 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # Update and return the tunnel info
         tunnel_info.controller_vtep_mac = tunnel_utils.get_mac_address(
             ifname=vxlan_name)
-        tunnel_info.controller_vtep_ip = controller_vtep_ip
-        tunnel_info.device_vtep_ip = device_vtep_ip
-        tunnel_info.vtep_mask = vtep_mask
+        # Update device VTEP IP address
+        success = srv6_sdn_controller_state.update_device_vtep_ip(
+            deviceid, tenantid, device_vtep_ip)
+        if success is not True:
+            logging.error('Error while updating device VTEP IP address')
+            # (status_code, controller_vtep_mac,
+            #      controller_vtep_ip, device_vtep_ip, vtep_mask)
+            return status_codes_pb2.STATUS_INTERNAL_ERROR, None, None, None, None
         # Success
         logging.debug('The VXLAN interface has been configured')
         return status_codes_pb2.STATUS_SUCCESS
@@ -359,7 +369,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                                      dst=device_vtep_ip)
         # Remove the FDB entry that associate the device VTEP MAC address
         # to the device IP address
-        device_vtep_mac = self.get_device_vtep_mac(device_id)
+        device_vtep_mac = srv6_sdn_controller_state.get_device_vtep_mac(
+            deviceid, tenantid)
         logging.debug('Attempting to remove the entry from the FDB\n'
                       'lladdr=%s, vxlan_name=%s'
                       % (device_vtep_mac, vxlan_name))

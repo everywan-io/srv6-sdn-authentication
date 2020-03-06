@@ -297,17 +297,12 @@ class PymerangController:
         if not authenticated:
             logging.info('Authentication failed for the device %s' % device_id)
             return STATUS_UNAUTHORIZED, None, None
-        # Register the device
-        self.devices[device_id] = {
-            'features': features,
-            'interfaces': interfaces,
-            'mgmtip': mgmtip,
-            'tenantid': tenantid,
-            'tunnel_mode': None,
-            'tunnel_info': None,
-            'nat_type': None,
-            'status': utils.DeviceStatus.CONNECTED
-        }
+        # If the device is already registered, send it the configuration
+        # and create tunnels
+        if srv6_sdn_controller_state.device_exists(deviceid, tenantid):
+            logging.warning('The device %s is already registered' % deviceid)
+            # TODO configure device
+            # TODO create tunnels
         # Update controller state
         srv6_sdn_controller_state.register_device(device_id, features, interfaces, mgmtip, tenantid)
         # Get the tenant configuration
@@ -332,12 +327,18 @@ class PymerangController:
         
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
-        old_tunnel_mode = self.devices[device_id]['tunnel_mode']
+        old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(
+            deviceid, tenantid)
         if old_tunnel_mode is not None:
             old_tunnel_mode = utils.REVERSE_TUNNEL_MODES[old_tunnel_mode]
             old_tunnel_mode = self.tunnel_state.tunnel_modes[old_tunnel_mode]
-            old_tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
-            self.devices[device_id]['tunnel_mode'] = None
+            res = old_tunnel_mode.destroy_tunnel_controller_endpoint(
+                deviceid, tenantid)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                              'destroy_tunnel_controller_endpoint')
+                return res, None, None, None
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Get the tunnel mode requested by the device
         tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_info.tunnel_mode]
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
@@ -381,38 +382,78 @@ class PymerangController:
             self.devices[device_id]['interfaces'][name]['ext_ipv6_addrs'] = ext_ipv6_addrs
 
         # Update controller state
-        srv6_sdn_controller_state.update_tunnel_mode(device_id, mgmtip, interfaces, tunnel_name, nat_type)
+        srv6_sdn_controller_state.update_mgmt_info(
+            deviceid, tenantid, mgmtip, interfaces, tunnel_name,
+            nat_type, device_external_ip,
+            device_external_port, device_vtep_mac, vxlan_port)
+        # Success
+        logging.debug('Updated management information: %s' % deviceid)
+        return (STATUS_SUCCESS, controller_vtep_mac,
+                controller_vtep_ip, device_vtep_ip, vtep_mask)
 
-
-        # Update the management IP address
-        # if tunnel_mode.get_device_private_ip(tenantid, device_id) is not None:
-        #    mgmtip = tunnel_mode.get_device_private_ip(tenantid, device_id)
-        #self.devices[device_id]['mgmtip'] = mgmtip
+    def unregister_device(self, deviceid, tenantid):
+        logging.debug('Unregistering the device %s' % deviceid)
+        # Get the device
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
+        if device is None:
+            logging.error('Device %s not found' % deviceid)
+            return STATUS_INTERNAL_ERROR
+        # Unregister the device
+        success = srv6_sdn_controller_state.unregister_device(
+            deviceid, tenantid)
+        if success is None or success is False:
+            err = ('Cannot unregister the device. '
+                   'Error while updating the controller state')
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR
+        # Get tunnel mode
+        tunnel_mode = device['tunnel_mode']
+        if tunnel_mode is not None:
+            # Get the tunnel mode class from its name
+            tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+            # Destroy the tunnel
+            logging.debug(
+                'Trying to destroy the tunnel for the device %s' % deviceid)
+            res = tunnel_mode.destroy_tunnel_controller_endpoint(
+                deviceid, tenantid)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                              'destroy_tunnel_controller_endpoint')
+                return res
         # Success
         logging.debug('Updated device registration: %s' %
                       self.devices[device_id])
         return STATUS_SUCCESS, tunnel_info
 
-    def unregister_device(self, device_id, tunnel_info):
-        logging.debug('Unregistering the device %s' % device_id)
-        # Get the tunnel mode
-        tunnel_mode = self.devices[device_id]['tunnel_mode']
-        tunnel_mode = utils.REVERSE_TUNNEL_MODES[tunnel_mode]
-        tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
-        # Get the tunnel info
-        tunnel_info = self.devices[device_id]['tunnel_info']
-        # Get the tenant ID of the devices
-        tenantid = self.devices[device_id]['tenantid']
-        # Remove the device from the data structures
-        del self.device_to_tunnel_mode[device_id]
-        del self.devices[device_id]
-        
-        srv6_sdn_controller_state.unregister_device(device_id)
-        
-        # Destroy the tunnel
-        logging.debug(
-            'Trying to destroy the tunnel for the device %s' % device_id)
-        tunnel_mode.destroy_tunnel_controller_endpoint(tunnel_info)
+    def device_disconnected(self, deviceid, tenantid):
+        logging.debug('The device %s has been disconnected' % deviceid)
+        # Get the device
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
+        if device is None:
+            logging.error('Device %s not found' % deviceid)
+            return STATUS_INTERNAL_ERROR
+        # Mark the device as "not connected"
+        success = srv6_sdn_controller_state.set_device_connected_flag(
+            deviceid=deviceid, tenantid=tenantid, connected=False)
+        if success is None or success is False:
+            err = ('Cannot set the device as disconnected. '
+                   'Error while updating the controller state')
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR
+        # Get tunnel mode
+        tunnel_mode = device['tunnel_mode']
+        if tunnel_mode is not None:
+            # Get the tunnel mode class from its name
+            tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_mode]
+            # Destroy the tunnel
+            logging.debug(
+                'Trying to destroy the tunnel for the device %s' % deviceid)
+            res = tunnel_mode.destroy_tunnel_controller_endpoint(
+                deviceid, tenantid)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                              'destroy_tunnel_controller_endpoint')
+                return res
         # Success
         logging.debug('Device unregistered: %s' % device_id)
         return STATUS_SUCCESS, tunnel_info
