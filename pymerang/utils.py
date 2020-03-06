@@ -35,13 +35,6 @@ class InterfaceType:
     LAN = 'lan'
 
 
-# Device status
-class DeviceStatus:
-    NOT_CONNECTED = 'Not Connected'
-    CONNECTED = 'Connected'
-    RUNNING = 'Running'
-
-
 # Generate server address string from IP and port
 def get_server_address(ip, port):
     server_address = None
