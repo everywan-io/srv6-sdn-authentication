@@ -120,7 +120,8 @@ class PymerangDevice:
         # and gracefully shutdown this script
         self.stop_event = stop_event
         # Start thread listening for device shutdown
-        Thread(target=self.shutdown_device).start()
+        if stop_event is not None:
+            Thread(target=self.shutdown_device).start()
 
     # Build a grpc stub
     def get_grpc_session(self, ip_address, port):
@@ -424,7 +425,7 @@ class PymerangDevice:
             else:
                 # Unknown status code
                 logging.warning('Unknown status code: %s' % response.status)
-                return
+                return response.status
 
     def update_mgmt_info(self):
         while True:
@@ -580,7 +581,7 @@ def parse_arguments():
     )
     # Server certificate file
     parser.add_argument(
-        '-c', '--certificate', store='certificate', action='store',
+        '-c', '--certificate', dest='certificate', action='store',
         default=DEFAULT_CERTIFICATE, help='Server certificate file'
     )
     # Parse input parameters

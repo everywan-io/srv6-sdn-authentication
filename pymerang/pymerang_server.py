@@ -311,7 +311,7 @@ class PymerangController:
             deviceid, auth_data)
         if not authenticated:
             logging.info('Authentication failed for the device %s' % deviceid)
-            return STATUS_UNAUTHORIZED, None, None, None
+            return STATUS_UNAUTHORIZED, None, None
         # If the device is already registered, send it the configuration
         # and create tunnels
         if srv6_sdn_controller_state.device_exists(deviceid):
@@ -326,7 +326,7 @@ class PymerangController:
         if config is None:
             logging.error(
                 'Tenant not found or error while connecting to the db')
-            return STATUS_INTERNAL_ERROR, None, None, None
+            return STATUS_INTERNAL_ERROR, None, None
         # Set the port
         vxlan_port = config.get('vxlan_port', DEFAULT_VXLAN_PORT)
         # Success
@@ -540,12 +540,12 @@ def parse_arguments():
     )
     # Server certificate file
     parser.add_argument(
-        '-c', '--certificate', store='certificate', action='store',
+        '-c', '--certificate', dest='certificate', action='store',
         default=DEFAULT_CERTIFICATE, help='Server certificate file'
     )
     # Server key
     parser.add_argument(
-        '-k', '--key', store='key', action='store',
+        '-k', '--key', dest='key', action='store',
         default=DEFAULT_KEY, help='Server key file'
     )
     # Parse input parameters
