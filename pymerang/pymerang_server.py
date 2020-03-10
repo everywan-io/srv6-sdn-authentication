@@ -388,6 +388,14 @@ class PymerangController:
             deviceid, mgmtip, interfaces, tunnel_name,
             nat_type, device_external_ip,
             device_external_port, device_vtep_mac, vxlan_port)
+        # Mark the device as "connected"
+        success = srv6_sdn_controller_state.set_device_connected_flag(
+            deviceid=deviceid, connected=True)
+        if success is None or success is False:
+            err = ('Cannot set the device as connected. '
+                   'Error while updating the controller state')
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR
         # Success
         logging.debug('Updated management information: %s' % deviceid)
         return (STATUS_SUCCESS, controller_vtep_mac,
