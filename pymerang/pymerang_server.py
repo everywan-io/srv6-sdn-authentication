@@ -409,13 +409,6 @@ class PymerangController:
         if device is None:
             logging.error('Device %s not found' % deviceid)
             return STATUS_INTERNAL_ERROR
-        # Unregister the device
-        # success = srv6_sdn_controller_state.unregister_device(deviceid)
-        # if success is None or success is False:
-        #     err = ('Cannot unregister the device. '
-        #            'Error while updating the controller state')
-        #     logging.error(err)
-        #     return STATUS_INTERNAL_ERROR
         # Get tunnel mode
         tunnel_mode = device['tunnel_mode']
         if tunnel_mode is not None:
