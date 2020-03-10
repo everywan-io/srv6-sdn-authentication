@@ -100,6 +100,10 @@ class PymerangDevice:
             self.token = token_file.read()
             # Remove trailing new line character
             self.token = self.token.rstrip('\n')
+        # IP address of the controller VTEP
+        self.controller_vtep_ip = None
+        # MAC address of the controller VTEP
+        self.controller_vtep_mac = None
         # Tunnel state
         self.tunnel_state = None
         # Secure mode
@@ -346,10 +350,12 @@ class PymerangDevice:
                 # Management interface already configured
                 # We need to destroy it before creating a new one
                 res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-                    self.deviceid, self.tenantid)
+                    self.deviceid, self.tenantid,
+                    self.controller_vtep_ip, self.controller_vtep_mac)
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     logging.error('Cannot destroy the management interface')
                     return res
+                self.tunnel_device_endpoint_end_configured = False
             if self.tunnel_device_endpoint_configured:
                 # Management interface already configured
                 # We need to destroy it before creating a new one
@@ -358,6 +364,7 @@ class PymerangDevice:
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     logging.error('Cannot destroy the management interface')
                     return res
+                self.tunnel_device_endpoint_configured = False
             # Create the tunnel
             logging.info('Creating the tunnel for the device')
             res, device_vtep_mac = \
@@ -378,21 +385,22 @@ class PymerangDevice:
             response = stub.UpdateMgmtInfo(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
                 # Extract IP address of the controller's VTEP
-                controller_vtep_ip = response.mgmt_info.controller_vtep_ip
+                self.controller_vtep_ip = response.mgmt_info.controller_vtep_ip
                 # Extract IP address of the device's VTEP
                 device_vtep_ip = response.mgmt_info.device_vtep_ip
                 # Extract mask of the VTEP
                 vtep_mask = response.mgmt_info.vtep_mask
                 # Extract MAC address of the controller's VTEP
-                controller_vtep_mac = response.mgmt_info.controller_vtep_mac
+                self.controller_vtep_mac = (response.mgmt_info
+                                            .controller_vtep_mac)
                 # Create the tunnel
                 logging.info('Finalizing tunnel configuration')
                 res = self.tunnel_mode.create_tunnel_device_endpoint_end(
                     deviceid=self.deviceid,
                     tenantid=self.tenantid,
-                    controller_vtep_ip=controller_vtep_ip,
+                    controller_vtep_ip=self.controller_vtep_ip,
                     device_vtep_ip=device_vtep_ip, vtep_mask=vtep_mask,
-                    controller_vtep_mac=controller_vtep_mac
+                    controller_vtep_mac=self.controller_vtep_mac
                 )
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     logging.error('Cannot create the management interface')
@@ -477,17 +485,20 @@ class PymerangDevice:
                      'Destroying management interface')
         # Remove the management interface
         res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-            self.deviceid, self.tenantid)
+            self.deviceid, self.tenantid,
+            self.controller_vtep_ip, self.controller_vtep_mac)
         if res != status_codes_pb2.STATUS_SUCCESS:
             logging.error('Error during '
                           'destroy_tunnel_device_endpoint_end')
             return res
+        self.tunnel_device_endpoint_end_configured = False
         res = self.tunnel_mode.destroy_tunnel_device_endpoint(
             self.deviceid, self.tenantid)
         if res != status_codes_pb2.STATUS_SUCCESS:
             logging.error('Error during '
                           'destroy_tunnel_device_endpoint_end')
             return res
+        self.tunnel_device_endpoint_configured = False
         logging.info('Management interface destroyed')
         return status_codes_pb2.STATUS_SUCCESS
 

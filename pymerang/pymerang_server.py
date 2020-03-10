@@ -454,6 +454,7 @@ class PymerangController:
                 logging.error('Error during '
                               'destroy_tunnel_controller_endpoint')
                 return res
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, None)
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS

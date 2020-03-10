@@ -67,12 +67,12 @@ class NoTunnel(tunnel_utils.TunnelMode):
                                           device_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, deviceid, tenantid,
-                                       controller_vtep_ip,
-                                       controller_vtep_mac):
+    def destroy_tunnel_device_endpoint(self, deviceid, tenantid):
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid):
+    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                           controller_vtep_ip,
+                                           controller_vtep_mac):
         return status_codes_pb2.STATUS_SUCCESS
 
     def destroy_tunnel_controller_endpoint(self, deviceid, tenantid):

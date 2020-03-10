@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import errno
 import logging
 import pynat
 from ipaddress import ip_address, IPv6Network, IPv4Network
@@ -127,8 +128,14 @@ def get_local_interfaces():
 
 
 # Send a ping to the dst and return the delay expressed in seconds
+# Return None if no response is received
 def send_ping(dst_ip):
-    delay = ping(dst_ip)
+    try:
+        delay = ping(dst_ip)
+    except OSError as err:
+        if err.errno == errno.ENETUNREACH:
+            # Error 101: Network is unreachable
+            delay = None
     return delay
 
 
@@ -151,7 +158,7 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0, callback=None):
         # Returns delay in seconds.
         delay = send_ping(dst_ip)
         if max_lost > 0:
-            if not delay:
+            if delay is None:
                 current_lost += 1
                 logging.warning('Lost keep alive message (count %s)' %
                                 current_lost)
