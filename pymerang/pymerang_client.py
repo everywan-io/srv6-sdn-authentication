@@ -423,6 +423,7 @@ class PymerangDevice:
                            args=(self.controller_mgmtip,
                                  self.keep_alive_interval,
                                  self.max_keep_alive_lost,
+                                 self.stop_event,
                                  self.update_mgmt_info
                                  ),
                            daemon=False

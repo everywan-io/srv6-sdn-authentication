@@ -150,12 +150,14 @@ def send_keep_alive_udp(dst_ip, dst_port):
 
 
 # Start sending keep alive messages using ICMP protocol
-def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0, callback=None):
+def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
+                          stop_event=None, callback=None):
     logging.info('Start sending ICMP keep alive messages to %s\n'
                  'Interval set to %s seconds' % (dst_ip, interval))
     current_lost = 0
     while True:
         # Returns delay in seconds.
+        logging.debug('Send keep alive message')
         delay = send_ping(dst_ip)
         if max_lost > 0:
             if delay is None:
@@ -167,11 +169,21 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0, callback=None):
                     if callback is not None:
                         logging.warning('Too many lost keep alive messages\n')
                         return callback()
-                    return None
+                    return
             else:
                 current_lost = 0
         # Wait for X seconds before sending the next keep alive
-        time.sleep(interval)
+        if stop_event is not None:
+            # If shutdown device has been requested,
+            # stop_event is set and wait() returns true
+            if stop_event.wait(timeout=interval) is True:
+                # Shutdown device operation requested
+                # Stop sending keep alive messages
+                logging.info('Termination flag set')
+                logging.info('Stop sending keep alive messages')
+                return
+        else:
+            time.sleep(interval)
 
 
 # Start sending keep alive messages using UDP protocol
