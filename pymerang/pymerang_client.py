@@ -104,6 +104,8 @@ class PymerangDevice:
         self.controller_vtep_ip = None
         # MAC address of the controller VTEP
         self.controller_vtep_mac = None
+        # MAC address of the device VTEP
+        self.device_vtep_mac = None
         # Tunnel state
         self.tunnel_state = None
         # Secure mode
@@ -356,30 +358,31 @@ class PymerangDevice:
                     logging.error('Cannot destroy the management interface')
                     return res
                 self.tunnel_device_endpoint_end_configured = False
-            if self.tunnel_device_endpoint_configured:
-                # Management interface already configured
-                # We need to destroy it before creating a new one
-                res = self.tunnel_mode.destroy_tunnel_device_endpoint(
-                    self.deviceid, self.tenantid)
-                if res != status_codes_pb2.STATUS_SUCCESS:
-                    logging.error('Cannot destroy the management interface')
-                    return res
-                self.tunnel_device_endpoint_configured = False
+            # if self.tunnel_device_endpoint_configured:
+            #     # Management interface already configured
+            #     # We need to destroy it before creating a new one
+            #     res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+            #         self.deviceid, self.tenantid)
+            #     if res != status_codes_pb2.STATUS_SUCCESS:
+            #         logging.error('Cannot destroy the management interface')
+            #         return res
+            #     self.tunnel_device_endpoint_configured = False
             # Create the tunnel
-            logging.info('Creating the tunnel for the device')
-            res, device_vtep_mac = \
-                self.tunnel_mode.create_tunnel_device_endpoint(
-                    deviceid=self.deviceid,
-                    tenantid=self.tenantid,
-                    vxlan_port=self.vxlan_port,
-                )
-            if res != status_codes_pb2.STATUS_SUCCESS:
-                logging.error('Cannot create the management interface')
-                return res
-            self.tunnel_device_endpoint_configured = True
+            if not self.tunnel_device_endpoint_configured:
+                logging.info('Creating the tunnel for the device')
+                res, self.device_vtep_mac = \
+                    self.tunnel_mode.create_tunnel_device_endpoint(
+                        deviceid=self.deviceid,
+                        tenantid=self.tenantid,
+                        vxlan_port=self.vxlan_port,
+                    )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot create the management interface')
+                    return res
+                self.tunnel_device_endpoint_configured = True
             # Set the MAC address of the device's VTEP
-            if device_vtep_mac is not None:
-                request.mgmt_info.device_vtep_mac = device_vtep_mac
+            if self.device_vtep_mac is not None:
+                request.mgmt_info.device_vtep_mac = self.device_vtep_mac
             # Send the update tunnel mode request
             logging.info('Sending the update tunnel mode request')
             response = stub.UpdateMgmtInfo(request)
