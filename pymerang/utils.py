@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import errno
 import logging
 import pynat
 from ipaddress import ip_address, IPv6Network, IPv4Network
@@ -10,20 +11,11 @@ import socket
 import time
 from ping3 import ping
 from pyroute2 import IPRoute
+from socket import AF_INET, AF_INET6
 # pymerang dependencies
 from pymerang import no_tunnel
 from pymerang import vxlan_utils
 from pymerang import etherws_utils
-from pymerang import pymerang_pb2
-
-# Tunnel modes
-TUNNEL_MODES = {
-    'no_tunnel': pymerang_pb2.TunnelMode.no_tunnel,
-    'vxlan': pymerang_pb2.TunnelMode.vxlan,
-    'etherws': pymerang_pb2.TunnelMode.etherws
-}
-
-REVERSE_TUNNEL_MODES = {v: k for k, v in TUNNEL_MODES.items()}
 
 # NAT types
 NAT_TYPES = [
@@ -44,11 +36,14 @@ class InterfaceType:
     LAN = 'lan'
 
 
-# Device status
-class DeviceStatus:
-    NOT_CONNECTED = 'Not Connected'
-    CONNECTED = 'Connected'
-    RUNNING = 'Running'
+# Generate server address string from IP and port
+def get_server_address(ip, port):
+    server_address = None
+    if getAddressFamily(ip) == AF_INET6:
+        server_address = '[%s]:%s' % (ip, port)
+    elif getAddressFamily(ip) == AF_INET:
+        server_address = '%s:%s' % (ip, port)
+    return server_address
 
 
 # Utiliy function to check if the IP
@@ -133,8 +128,14 @@ def get_local_interfaces():
 
 
 # Send a ping to the dst and return the delay expressed in seconds
+# Return None if no response is received
 def send_ping(dst_ip):
-    delay = ping(dst_ip)
+    try:
+        delay = ping(dst_ip)
+    except OSError as err:
+        if err.errno == errno.ENETUNREACH:
+            # Error 101: Network is unreachable
+            delay = None
     return delay
 
 
@@ -149,29 +150,40 @@ def send_keep_alive_udp(dst_ip, dst_port):
 
 
 # Start sending keep alive messages using ICMP protocol
-def start_keep_alive_icmp(dst_ip, interval=30, max_lost=0, callback=None):
+def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
+                          stop_event=None, callback=None):
     logging.info('Start sending ICMP keep alive messages to %s\n'
                  'Interval set to %s seconds' % (dst_ip, interval))
     current_lost = 0
     while True:
         # Returns delay in seconds.
+        logging.debug('Send keep alive message')
         delay = send_ping(dst_ip)
         if max_lost > 0:
-            if not delay:
+            if delay is None:
                 current_lost += 1
-                logging.debug('Lost keep alive message (count %s)' %
-                              current_lost)
+                logging.warning('Lost keep alive message (count %s)' %
+                                current_lost)
                 if max_lost > 0 and current_lost >= max_lost:
                     # Too many lost keep alive messages
                     if callback is not None:
-                        logging.info('Too many lost keep alive messages\n'
-                                     'Trying to reconnect to the controller')
+                        logging.warning('Too many lost keep alive messages\n')
                         return callback()
-                    return None
+                    return
             else:
                 current_lost = 0
         # Wait for X seconds before sending the next keep alive
-        time.sleep(interval)
+        if stop_event is not None:
+            # If shutdown device has been requested,
+            # stop_event is set and wait() returns true
+            if stop_event.wait(timeout=interval) is True:
+                # Shutdown device operation requested
+                # Stop sending keep alive messages
+                logging.info('Termination flag set')
+                logging.info('Stop sending keep alive messages')
+                return
+        else:
+            time.sleep(interval)
 
 
 # Start sending keep alive messages using UDP protocol
@@ -276,12 +288,6 @@ class TunnelState:
             self.nat_to_tunnel_modes[nat_type] = dict()
         # Save server IP
         self.controller_ip = controller_ip
-        # Initialize network allocator
-        self.ipv6_net_allocator = IPv6NetAllocator()
-        self.ipv4_net_allocator = IPv4NetAllocator()
-        # Initialize address allocator
-        self.ipv6_address_allocator = IPv6AddressAllocator()
-        self.ipv4_address_allocator = IPv4AddressAllocator()
         # Initialize tunnel modes
         self.init_tunnel_modes()
 
@@ -333,16 +339,12 @@ class TunnelState:
         self.register_tunnel_mode(vxlan_utils.TunnelVXLAN(
             name='vxlan',
             priority=5,
-            controller_ip=self.controller_ip,
-            ipv6_address_allocator=self.ipv6_address_allocator,
-            ipv4_address_allocator=self.ipv4_address_allocator)
+            controller_ip=self.controller_ip)
         )
         # Ethernet over Websocket tunnel mode
         self.register_tunnel_mode(
             etherws_utils.TunnelEtherWs(
                 name='etherws',
                 priority=10,
-                controller_ip=self.controller_ip,
-                ipv6_net_allocator=self.ipv6_net_allocator,
-                ipv4_net_allocator=self.ipv4_net_allocator)
+                controller_ip=self.controller_ip)
         )

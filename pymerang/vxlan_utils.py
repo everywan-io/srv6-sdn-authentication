@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import pyroute2
 import logging
 import socket
 import pynat
@@ -9,7 +10,11 @@ from pyroute2 import IPRoute
 # pymerang dependencies
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
+from srv6_sdn_controller_state import srv6_sdn_controller_state
 
+
+# Global variables
+NO_SUCH_FILE_OR_DIRECTORY = 2
 # Destination port used by VXLAN interfaces
 VXLAN_DSTPORT = 4789
 # Enable UDP checksum on VXLAN packets
@@ -109,8 +114,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
 
     ''' VXLAN tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip,
-                 ipv6_address_allocator, ipv4_address_allocator, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False):
         # VXLAN tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -121,24 +125,18 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
             pynat.RESTRICTED_CONE,
             pynat.RESTRICTED_PORT
         ]
-        # Set of initiated tenant IDs
-        self.initiated = set()
+        # Initiated flag used by the controller
+        self.initiated = False
         # Create tunnel mode
         super().__init__(name=name,
                          require_keep_alive_messages=req_keep_alive_messages,
                          supported_nat_types=supported_nat_types,
                          priority=priority,
                          controller_ip=controller_ip,
-                         ipv6_net_allocator=None,
-                         ipv4_net_allocator=None,
-                         ipv6_address_allocator=ipv6_address_allocator,
-                         ipv4_address_allocator=ipv4_address_allocator,
                          debug=debug)
 
-    def create_tunnel_device_endpoint(self, tunnel_info):
+    def create_tunnel_device_endpoint(self, deviceid, tenantid, vxlan_port):
         logging.info('Creating the VXLAN management interface')
-        # Extract VXLAN port
-        vxlan_port = tunnel_info.vxlan_port
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Create the VXLAN interface
@@ -158,19 +156,18 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # sent to the controller
         # The VTEP's MAC address is used to setup
         # the FDB entry on the controller side
-        tunnel_info.device_vtep_mac = tunnel_utils.get_mac_address(
+        device_vtep_mac = tunnel_utils.get_mac_address(
             ifname=vxlan_name)
         # Success
         logging.debug('The VXLAN interface has been created')
-        return status_codes_pb2.STATUS_SUCCESS
+        # (status_code, device_vtep_mac)
+        return status_codes_pb2.STATUS_SUCCESS, device_vtep_mac
 
-    def create_tunnel_device_endpoint_end(self, tunnel_info):
+    def create_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         logging.info('Configuring the VXLAN management interface')
-        # Extract the VTEP IPs, MAC and mask
-        controller_vtep_ip = tunnel_info.controller_vtep_ip
-        device_vtep_ip = tunnel_info.device_vtep_ip
-        vtep_mask = tunnel_info.vtep_mask
-        controller_vtep_mac = tunnel_info.controller_vtep_mac
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Add a private address to the interface
@@ -202,20 +199,16 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         self.vtep_mask = vtep_mask
         # Success
         logging.debug('The VXLAN interface has been configured')
+        # (status_code, device_vtep_mac)
         return status_codes_pb2.STATUS_SUCCESS
 
-    def create_tunnel_controller_endpoint(self, tunnel_info):
+    def create_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          vxlan_port,
+                                          device_vtep_mac):
         logging.info('Configuring the VXLAN tunnel for the device %s'
-                     % tunnel_info.device_id)
-        # Extract the device ID
-        device_id = tunnel_info.device_id
-        # External IP and port of the device
-        device_external_ip = tunnel_info.device_external_ip
-        device_external_port = tunnel_info.device_external_port
-        # MAC address of the VTEP's device
-        device_vtep_mac = tunnel_info.device_vtep_mac
-        # Extract the port
-        port = tunnel_info.vxlan_port
+                     % deviceid)
         # Extract the tenant ID
         #tenantid = tunnel_info.tenantid
         _tenantid = '0'
@@ -223,47 +216,6 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         vni = MGMT_VNI
         # Create the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
-        if tenantid not in self.initiated:
-            # Initiate tenant ID
-            self.initiated.add(tenantid)
-            self.init_tenantid(tenantid)
-            # Generate private addresses for the controller VTEP
-            ip_mask = self.get_new_mgmt_ipv6(0, tenantid).split('/')
-            controller_vtep_ipv6 = ip_mask[0]
-            vtep_mask_ipv6 = int(ip_mask[1])
-            ip_mask = self.get_new_mgmt_ipv4(0, tenantid).split('/')
-            controller_vtep_ipv4 = ip_mask[0]
-            vtep_mask_ipv4 = int(ip_mask[1])
-            # Create the VXLAN interface
-            logging.debug('First VXLAN tunnel, attempting to create '
-                          'the VXLAN interface %s'
-                          % vxlan_name)
-            create_vxlan(device=vxlan_name, vni=vni,
-                         # remote=device_external_ip,
-                         local=self.controller_ip,
-                         dstport=VXLAN_DSTPORT,
-                         srcport_min=VXLAN_DSTPORT,
-                         srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
-                         udp6zerocsumtx=ENABLE_UDP_CSUM,
-                         udp6zerocsumrx=not ENABLE_UDP_CSUM,
-                         learning=False)
-            # Bring the interface UP
-            logging.debug('Bringing the interface %s up' % vxlan_name)
-            tunnel_utils.enable_interface(device=vxlan_name)
-            # Add a private address to the interface
-            logging.debug('Attempting to assign the IP address %s/%s '
-                          'to the VXLAN management interface %s'
-                          % (controller_vtep_ipv6, vtep_mask_ipv6, vxlan_name))
-            tunnel_utils.add_address(device=vxlan_name,
-                                     address=controller_vtep_ipv6,
-                                     mask=vtep_mask_ipv6)
-            # Add a private address to the interface
-            logging.debug('Attempting to assign the IP address %s/%s '
-                          'to the VXLAN management interface %s'
-                          % (controller_vtep_ipv4, vtep_mask_ipv4, vxlan_name))
-            tunnel_utils.add_address(device=vxlan_name,
-                                     address=controller_vtep_ipv4,
-                                     mask=vtep_mask_ipv4)
         # Save the MAC address of the device's VTEP
         srv6_sdn_controller_state.update_device_vtep_mac(
             deviceid, tenantid, device_vtep_mac)
@@ -272,23 +224,30 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
             self.init_tunnel_controller_endpoint()
             self.initiated = True
         # Generate private address for the device VTEP
-        family = tunnel_utils.getAddressFamily(tunnel_info.device_external_ip)
+        family = tunnel_utils.getAddressFamily(device_external_ip)
         if family == socket.AF_INET6:
-            ip_mask = self.get_new_mgmt_ipv6(0, tenantid).split('/')
+            ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv6(
+                '0').split('/')
             controller_vtep_ip = ip_mask[0]
-            ip_mask = self.get_new_mgmt_ipv6(device_id, tenantid).split('/')
+            ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv6(
+                deviceid).split('/')
             device_vtep_ip = ip_mask[0]
             vtep_mask = int(ip_mask[1])
         elif family == socket.AF_INET:
-            ip_mask = self.get_new_mgmt_ipv4(0, tenantid).split('/')
+            ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv4(
+                '0').split('/')
             controller_vtep_ip = ip_mask[0]
-            ip_mask = self.get_new_mgmt_ipv4(device_id, tenantid).split('/')
+            ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv4(
+                deviceid).split('/')
             device_vtep_ip = ip_mask[0]
             vtep_mask = int(ip_mask[1])
         else:
             logging.error('Invalid family address: %s' %
-                          tunnel_info.device_external_ip)
-            return status_codes_pb2.STATUS_INTERNAL_ERROR
+                          device_external_ip)
+            # (status_code, controller_vtep_mac,
+            #      controller_vtep_ip, device_vtep_ip, vtep_mask)
+            return (status_codes_pb2.STATUS_INTERNAL_ERROR,
+                    None, None, None, None)
         # Create a FDB entry that associate the device VTEP MAC address
         # to the device IP address
         logging.debug('Attempting to add the entry to the FDB\n'
@@ -296,7 +255,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                       % (device_external_ip, device_vtep_mac,
                          vxlan_name, device_external_port))
         create_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
-                         dst=device_external_ip, port=port)
+                         dst=device_external_ip, port=vxlan_port)
         # Create a IP neighbor entry that associate the VTEP IP address
         # of the device to the device VTEP MAC address
         logging.debug('Attempting to add the neigh to the neigh table\n'
@@ -305,7 +264,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         tunnel_utils.create_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
                                      dst=device_vtep_ip)
         # Update and return the tunnel info
-        tunnel_info.controller_vtep_mac = tunnel_utils.get_mac_address(
+        controller_vtep_mac = tunnel_utils.get_mac_address(
             ifname=vxlan_name)
         # Update device VTEP IP address
         success = srv6_sdn_controller_state.update_device_vtep_ip(
@@ -314,26 +273,62 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
             logging.error('Error while updating device VTEP IP address')
             # (status_code, controller_vtep_mac,
             #      controller_vtep_ip, device_vtep_ip, vtep_mask)
-            return status_codes_pb2.STATUS_INTERNAL_ERROR, None, None, None, None
+            return (status_codes_pb2.STATUS_INTERNAL_ERROR,
+                    None, None, None, None)
         # Success
         logging.debug('The VXLAN interface has been configured')
-        return status_codes_pb2.STATUS_SUCCESS
+        # (status_code, controller_vtep_mac,
+        #      controller_vtep_ip, device_vtep_ip, vtep_mask)
+        return (status_codes_pb2.STATUS_SUCCESS, controller_vtep_mac,
+                controller_vtep_ip, device_vtep_ip, vtep_mask)
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
-        logging.info('Destroying the VXLAN tunnel')
+    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                           controller_vtep_ip,
+                                           controller_vtep_mac):
+        logging.info('Destroying the VXLAN tunnel '
+                     '(destroy_tunnel_device_endpoint_end)')
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Name of the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
+        # Remove the IP neighbor entry that associates the VTEP IP address
+        # of the controller to the VTEP MAC address
+        logging.debug('Attempting to remove the neigh from the neigh table\n'
+                      'dst=%s, lladdr=%s, vxlan_name=%s'
+                      % (controller_vtep_ip, controller_vtep_mac, vxlan_name))
+        tunnel_utils.remove_ip_neigh(dev=vxlan_name,
+                                     dst=controller_vtep_ip)
+        # Remove the FDB entry that associate the VTEP MAC address
+        # to the controller IP address
+        logging.debug('Attempting to add the entry to the FDB\n'
+                      'dst=%s, lladdr=%s, vxlan_name=%s'
+                      % (self.controller_ip, controller_vtep_mac, vxlan_name))
+        remove_fdb_entry(dev=vxlan_name, lladdr=controller_vtep_mac)
         # Remove the IP address assigned to the interface
         device_vtep_ip = self.device_vtep_ip
         vtep_mask = self.vtep_mask
-        logging.debug('Attempting to remove the IP address %s/%s '
-                      'from the VXLAN management interface %s'
-                      % (device_vtep_ip, vtep_mask, vxlan_name))
-        tunnel_utils.del_address(device=vxlan_name,
-                                 address=device_vtep_ip,
-                                 mask=vtep_mask)
+        if device_vtep_ip is not None:
+            logging.debug('Attempting to remove the IP address %s/%s '
+                          'from the VXLAN management interface %s'
+                          % (device_vtep_ip, vtep_mask, vxlan_name))
+            tunnel_utils.del_address(device=vxlan_name,
+                                     address=device_vtep_ip,
+                                     mask=vtep_mask)
+        # Remove the VTEP IP addresses
+        self.controller_mgmtip = None
+        self.device_vtep_ip = None
+        self.device_vtep_mask = None
+        # Success
+        logging.debug('destroy_tunnel_device_endpoint_end() completed')
+        return status_codes_pb2.STATUS_SUCCESS
+
+    def destroy_tunnel_device_endpoint(self, deviceid, tenantid):
+        logging.info('Destroying the VXLAN tunnel'
+                     '(destroy_tunnel_device_endpoint)')
+        # VNI used for VXLAN management interface
+        vni = MGMT_VNI
+        # Name of the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
         # Delete the VXLAN interface
         logging.debug('Attempting to remove the VXLAN '
                       'interface %s' % vxlan_name)
@@ -343,30 +338,37 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         self.device_vtep_ip = None
         self.device_vtep_mask = None
         # Success
+        logging.debug('destroy_tunnel_device_endpoint() completed')
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_controller_endpoint(self, deviceid, tenantid):
         logging.info('Destroying the VXLAN tunnel for the device %s'
-                     % tunnel_info.device_id)
+                     % deviceid)
         # Extract the device ID
-        device_id = tunnel_info.device_id
+        #deviceid = deviceid
         # Extract the tenant ID
-        #tenantid = tunnel_info.tenantid
-        tenantid = '0'
+        #tenantid = tenantid
         # VNI used for VXLAN management interface
         vni = MGMT_VNI
         # Name of the VXLAN interface
         vxlan_name = '%s-%s' % (self.name, vni)
         # Remove the IP neighbor entry that associate the VTEP IP address
         # of the device to the device VTEP MAC address
-        device_vtep_ip = self.get_device_mgmtip(
-            tenantid, device_id).split('/')[0]
+        device_vtep_ip = srv6_sdn_controller_state.get_device_mgmtip(
+            tenantid, deviceid).split('/')[0]
         logging.debug('Attempting to remove the neigh from the neigh table\n'
                       'dst=%s, vxlan_name=%s'
                       % (device_vtep_ip, vxlan_name))
-        tunnel_utils.remove_ip_neigh(dev=vxlan_name,
-                                     dst=device_vtep_ip)
+        try:
+            tunnel_utils.remove_ip_neigh(dev=vxlan_name,
+                                         dst=device_vtep_ip)
+        except pyroute2.netlink.exceptions.NetlinkError as e:
+            if e.code == NO_SUCH_FILE_OR_DIRECTORY:
+                logging.warning('Skipping remove_ip_neigh: %s' % e)
+            else:
+                logging.error('Error in remove_ip_neigh: %s' % e)
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Remove the FDB entry that associate the device VTEP MAC address
         # to the device IP address
         device_vtep_mac = srv6_sdn_controller_state.get_device_vtep_mac(
@@ -376,73 +378,139 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                       % (device_vtep_mac, vxlan_name))
         remove_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac)
         # Release the private IP address associated to the device
-        self.release_ipv4_address(device_id, tenantid)
-        self.release_ipv6_address(device_id, tenantid)
-        # If the tenant has no more devices, we can de-allocate the VTEP
-        if self.num_addresses(tenantid) == 0:
-            # Remove the address from the VTEP interface
-            ip_mask = self.get_device_mgmtipv4(tenantid, 0).split('/')
-            controller_vtep_ipv4 = ip_mask[0]
-            vtep_mask_ipv4 = ip_mask[1]
-            logging.debug('Attempting to remove the IP address %s/%s '
-                          'from the VXLAN management interface %s'
-                          % (controller_vtep_ipv4, vtep_mask_ipv4, vxlan_name))
-            tunnel_utils.del_address(device=vxlan_name,
-                                     address=controller_vtep_ipv4,
-                                     mask=vtep_mask_ipv4)
-            # Remove the address from the VTEP interface
-            ip_mask = self.get_device_mgmtipv6(tenantid, 0).split('/')
-            controller_vtep_ipv6 = ip_mask[0]
-            vtep_mask_ipv6 = ip_mask[1]
-            logging.debug('Attempting to remove the IP address %s/%s '
-                          'from the VXLAN management interface %s'
-                          % (controller_vtep_ipv6, vtep_mask_ipv6, vxlan_name))
-            tunnel_utils.del_address(device=vxlan_name,
-                                     address=controller_vtep_ipv6,
-                                     mask=vtep_mask_ipv6)
-            # Remove the VXLAN interface
-            logging.debug('Last VXLAN tunnel, attempting to remove '
-                          'the VXLAN interface %s'
-                          % vxlan_name)
-            tunnel_utils.remove_interface(device=vxlan_name)
-            # Destroy tenant ID
-            self.release_tenantid(tenantid)
-            self.initiated.remove(tenantid)
+        srv6_sdn_controller_state.release_ipv4_address(
+            deviceid)        # TODO error check
+        srv6_sdn_controller_state.release_ipv6_address(deviceid)
         # Success
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def update_tunnel_device_endpoint(self, tunnel_info):
-        res = self.destroy_tunnel_device_endpoint(tunnel_info)
+    def update_tunnel_device_endpoint(self, deviceid, tenantid,
+                                      controller_vtep_ip,
+                                      device_vtep_ip, vtep_mask,
+                                      controller_vtep_mac):
+        res = self.destroy_tunnel_device_endpoint(deviceid)
         if res == status_codes_pb2.STATUS_SUCCESS:
-            res = self.create_tunnel_device_endpoint(tunnel_info)
+            res = self.create_tunnel_device_endpoint(deviceid, tenantid,
+                                                     controller_vtep_ip,
+                                                     device_vtep_ip, vtep_mask,
+                                                     controller_vtep_mac)
         return res
 
-    def update_tunnel_device_endpoint_end(self, tunnel_info):
-        return self.create_tunnel_device_endpoint_end(tunnel_info)
+    def update_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
+        return self.create_tunnel_device_endpoint_end(deviceid, tenantid,
+                                                      controller_vtep_ip,
+                                                      device_vtep_ip,
+                                                      vtep_mask,
+                                                      controller_vtep_mac)
 
-    def update_tunnel_controller_endpoint(self, tunnel_info):
-        res = self.destroy_tunnel_controller_endpoint(tunnel_info)
+    def update_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          device_vtep_mask, vxlan_port,
+                                          device_vtep_mac):
+        res = self.destroy_tunnel_controller_endpoint(
+            deviceid, tenantid)
         if res == status_codes_pb2.STATUS_SUCCESS:
-            res = self.create_tunnel_controller_endpoint(tunnel_info)
+            res = self.create_tunnel_controller_endpoint(
+                deviceid, tenantid, device_external_ip,
+                device_external_port,
+                device_vtep_mask, vxlan_port,
+                device_vtep_mac
+            )
         return res
 
-    # Return the private IPv6 of the device
-    def get_device_mgmtipv6(self, tenantid, device_id):
-        if tenantid not in self.device_to_mgmt_ipv6:
-            return None
-        return self.device_to_mgmt_ipv6[tenantid].get(device_id)
-
-    # Return the private IPv4 of the device
-    def get_device_mgmtipv4(self, tenantid, device_id):
-        if tenantid not in self.device_to_mgmt_ipv4:
-            return None
-        return self.device_to_mgmt_ipv4[tenantid].get(device_id)
-
-    # Return the private IP of the device
-    def get_device_mgmtip(self, tenantid, device_id):
+    # Init tunnel controller endpoing
+    def init_tunnel_controller_endpoint(self):
+        # Tenant ID used to store management information
         tenantid = '0'
-        addr = self.get_device_mgmtipv4(tenantid, device_id)
-        if addr is None:
-            addr = self.get_device_mgmtipv6(tenantid, device_id)
-        return addr
+        # VNI used for VXLAN management interface
+        vni = MGMT_VNI
+        # Create the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
+        # Generate private addresses for the controller VTEP
+        # ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv6(
+        #    '0', tenantid).split('/')
+        #controller_vtep_ipv6 = ip_mask[0]
+        #vtep_mask_ipv6 = int(ip_mask[1])
+        # ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv4(
+        #    '0', tenantid).split('/')
+        #controller_vtep_ipv4 = ip_mask[0]
+        #vtep_mask_ipv4 = int(ip_mask[1])
+        controller_vtep_ipv4 = '169.254.0.1'
+        vtep_mask_ipv4 = 16
+        controller_vtep_ipv6 = 'fcfa::1'
+        vtep_mask_ipv6 = 16
+        # Create the VXLAN interface
+        logging.debug('First VXLAN tunnel, attempting to create '
+                      'the VXLAN interface %s'
+                      % vxlan_name)
+        create_vxlan(device=vxlan_name, vni=vni,
+                     # remote=device_external_ip,
+                     local=self.controller_ip,
+                     dstport=VXLAN_DSTPORT,
+                     srcport_min=VXLAN_DSTPORT,
+                     srcport_max=VXLAN_DSTPORT+1, udpcsum=ENABLE_UDP_CSUM,
+                     udp6zerocsumtx=ENABLE_UDP_CSUM,
+                     udp6zerocsumrx=not ENABLE_UDP_CSUM,
+                     learning=False)
+        # Bring the interface UP
+        logging.debug('Bringing the interface %s up' % vxlan_name)
+        tunnel_utils.enable_interface(device=vxlan_name)
+        # Add a private address to the interface
+        logging.debug('Attempting to assign the IP address %s/%s '
+                      'to the VXLAN management interface %s'
+                      % (controller_vtep_ipv6, vtep_mask_ipv6, vxlan_name))
+        tunnel_utils.add_address(device=vxlan_name,
+                                 address=controller_vtep_ipv6,
+                                 mask=vtep_mask_ipv6)
+        # Add a private address to the interface
+        logging.debug('Attempting to assign the IP address %s/%s '
+                      'to the VXLAN management interface %s'
+                      % (controller_vtep_ipv4, vtep_mask_ipv4, vxlan_name))
+        tunnel_utils.add_address(device=vxlan_name,
+                                 address=controller_vtep_ipv4,
+                                 mask=vtep_mask_ipv4)
+        # Success
+        return status_codes_pb2.STATUS_SUCCESS
+
+    # Destroy tunnel controller endpoint
+    def destr_tunnel_controller_endpoint(self):
+        # Tenant ID used to store management information
+        tenantid = 0
+        # VNI used for VXLAN management interface
+        vni = MGMT_VNI
+        # Create the VXLAN interface
+        vxlan_name = '%s-%s' % (self.name, vni)
+        # Remove the address from the VTEP interface
+        ip_mask = srv6_sdn_controller_state.get_device_mgmtipv4(
+            tenantid, '0').split('/')
+        controller_vtep_ipv4 = ip_mask[0]
+        vtep_mask_ipv4 = ip_mask[1]
+        logging.debug('Attempting to remove the IP address %s/%s '
+                      'from the VXLAN management interface %s'
+                      % (controller_vtep_ipv4, vtep_mask_ipv4, vxlan_name))
+        tunnel_utils.del_address(device=vxlan_name,
+                                 address=controller_vtep_ipv4,
+                                 mask=vtep_mask_ipv4)
+        # Remove the address from the VTEP interface
+        ip_mask = srv6_sdn_controller_state.get_device_mgmtipv6(
+            tenantid, '0').split('/')
+        controller_vtep_ipv6 = ip_mask[0]
+        vtep_mask_ipv6 = ip_mask[1]
+        logging.debug('Attempting to remove the IP address %s/%s '
+                      'from the VXLAN management interface %s'
+                      % (controller_vtep_ipv6, vtep_mask_ipv6, vxlan_name))
+        tunnel_utils.del_address(device=vxlan_name,
+                                 address=controller_vtep_ipv6,
+                                 mask=vtep_mask_ipv6)
+        # Remove the VXLAN interface
+        logging.debug('Last VXLAN tunnel, attempting to remove '
+                      'the VXLAN interface %s'
+                      % vxlan_name)
+        tunnel_utils.remove_interface(device=vxlan_name)
+        # Success
+        return status_codes_pb2.STATUS_SUCCESS

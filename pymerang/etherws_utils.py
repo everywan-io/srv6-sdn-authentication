@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 # General imports
+import pyroute2
 import logging
 import pynat
 from socket import AF_INET, AF_INET6
@@ -10,6 +11,11 @@ from ipaddress import IPv6Network, IPv4Network
 from pymerang import etherws
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
+from srv6_sdn_controller_state import srv6_sdn_controller_state
+
+
+# Global variables
+NO_SUCH_FILE_OR_DIRECTORY = 2
 
 
 '''
@@ -129,8 +135,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
 
     ''' Ethernet over Websocket tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip,
-                 ipv6_net_allocator, ipv4_net_allocator, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False):
         # etherws tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -150,26 +155,20 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                          supported_nat_types=supported_nat_types,
                          priority=priority,
                          controller_ip=controller_ip,
-                         ipv6_net_allocator=ipv6_net_allocator,
-                         ipv4_net_allocator=ipv4_net_allocator,
-                         ipv6_address_allocator=None,
-                         ipv4_address_allocator=None,
                          debug=debug)
 
-    def create_tunnel_device_endpoint(self, tunnel_info):
+    def create_tunnel_device_endpoint(self, deviceid, tenantid, vxlan_port):
         # Nothing to do
-        return status_codes_pb2.STATUS_SUCCESS
+        # (status_code, device_vtep_mac)
+        return status_codes_pb2.STATUS_SUCCESS, None
 
-    def create_tunnel_device_endpoint_end(self, tunnel_info):
+    def create_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                          controller_vtep_ip,
+                                          device_vtep_ip, vtep_mask,
+                                          controller_vtep_mac):
         logging.info('Configuring the etherws tunnel')
-        # Extract the device ID
-        device_id = tunnel_info.device_id
-        # Extract the VTEP IPs
-        controller_vtep_ip = tunnel_info.controller_vtep_ip
-        device_vtep_ip = tunnel_info.device_vtep_ip
-        vtep_mask = tunnel_info.vtep_mask
         # Name of the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
         # Create the etherws TAP interface
         logging.debug('Attempting to create the TAP '
                       'interface %s' % tap_name)
@@ -190,33 +189,42 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         logging.debug('The etherws tunnel has been configured')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def create_tunnel_controller_endpoint(self, tunnel_info):
+    def create_tunnel_controller_endpoint(self, deviceid, tenantid,
+                                          device_external_ip,
+                                          device_external_port,
+                                          vxlan_port,
+                                          device_vtep_mac):
         logging.info('Configuring the etherws tunnel for the device %s'
-                     % tunnel_info.device_id)
-        # Extract the device ID
-        device_id = tunnel_info.device_id
+                     % deviceid)
         # Generate private addresses for the device and controller VTEPs
-        family = tunnel_utils.getAddressFamily(tunnel_info.device_external_ip)
+        family = tunnel_utils.getAddressFamily(device_external_ip)
         if family == AF_INET6:
             # Change to make dependant from the device ID?
-            net = self.get_new_mgmt_ipv6_net(device_id)
+            net = self.get_new_mgmt_ipv6_net(deviceid)
             net = IPv6Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
             vtep_mask = net.prefixlen
-        #elif family == AF_INET:       # TODO handle IPv6
-        else:
-            net = self.get_new_mgmt_ipv4_net(device_id)
+        # elif family == AF_INET:       # TODO handle IPv6
+        elif family == AF_INET:
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv4_net(deviceid)
             net = IPv4Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
             vtep_mask = net.prefixlen
-        #else:
+        else:
+            logging.error('Invalid family address: %s' %
+                          device_external_ip)
+            # (status_code, controller_vtep_mac,
+            #      controller_vtep_ip, device_vtep_ip, vtep_mask)
+            return (status_codes_pb2.STATUS_INTERNAL_ERROR,
+                    None, None, None, None)
+        # else:
         #    logging.error('Invalid family address: %s' %
         #                  tunnel_info.device_external_ip)
         #    return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Name of the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
         # Create the etherws TAP interface
         logging.debug('Attempting to create the TAP '
                       'interface %s' % tap_name)
@@ -237,19 +245,35 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
             return (status_codes_pb2.STATUS_INTERNAL_ERROR,
                     None, None, None, None)
         # Update and return the tunnel info
-        tunnel_info.controller_vtep_ip = controller_vtep_ip
-        tunnel_info.device_vtep_ip = device_vtep_ip
-        tunnel_info.vtep_mask = vtep_mask
         # Success
         logging.debug('The etherws tunnel has been configured')
+        # (status_code, controller_vtep_mac,
+        #      controller_vtep_ip, device_vtep_ip, vtep_mask)
+        return (status_codes_pb2.STATUS_SUCCESS, None,
+                controller_vtep_ip, device_vtep_ip, vtep_mask)
+
+    def destroy_tunnel_device_endpoint(self, deviceid, tenantid):
+        logging.info('Destroying the etherws tunnel')
+        # Success
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_device_endpoint(self, tunnel_info):
+    def destroy_tunnel_device_endpoint_end(self, deviceid, tenantid,
+                                           controller_vtep_ip,
+                                           controller_vtep_mac):
         logging.info('Destroying the etherws tunnel')
-        # Extract the device ID
-        device_id = tunnel_info.device_id
+        # Get the name of the TAP interface
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
+        # Remove the IP address assigned to the interface
+        device_vtep_ip = self.device_vtep_ip
+        vtep_mask = self.vtep_mask
+        if device_vtep_ip is not None:
+            logging.debug('Attempting to remove the IP address %s/%s '
+                          'from the VXLAN management interface %s'
+                          % (device_vtep_ip, vtep_mask, tap_name))
+            tunnel_utils.del_address(device=tap_name,
+                                     address=device_vtep_ip,
+                                     mask=vtep_mask)
         # Delete the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
         tunnel_utils.delete_interface(device=tap_name)
         # del_etherws_port(1)
         # Delete the websocket interface
@@ -259,14 +283,19 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 
-    def destroy_tunnel_controller_endpoint(self, tunnel_info):
+    def destroy_tunnel_controller_endpoint(self, deviceid, tenantid):
         logging.info('Destroying the VXLAN tunnel for the device %s'
-                     % tunnel_info.device_id)
-        # Extract the device ID
-        device_id = tunnel_info.device_id
+                     % deviceid)
         # Delete the TAP interface
-        tap_name = '%s-%s' % (self.name, device_id[:3])
-        tunnel_utils.delete_interface(device=tap_name)
+        tap_name = '%s-%s' % (self.name, deviceid[:3])
+        try:
+            tunnel_utils.delete_interface(device=tap_name)
+        except pyroute2.netlink.exceptions.NetlinkError as e:
+            if e.code == NO_SUCH_FILE_OR_DIRECTORY:
+                logging.warning('Skipping remove_ip_neigh: %s' % e)
+            else:
+                logging.error('Error in remove_ip_neigh: %s' % e)
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Delete the TAP interface
         # del_etherws_port(1)
         # Release the private IP address associated to the device
@@ -277,22 +306,22 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         return status_codes_pb2.STATUS_SUCCESS
 
     # Return the private IPv6 of the device
-    def get_device_mgmtipv6(self, tenantid, device_id):
-        net = self.device_to_ipv6_net.get(device_id)
+    def get_device_mgmtipv6(self, tenantid, deviceid):
+        net = self.device_to_ipv6_net.get(deviceid)
         if net is not None:
             return IPv6Network(net)[2].__str__().split('/')[0]
         return None
 
     # Return the private IPv4 of the device
-    def get_device_mgmtipv4(self, tenantid, device_id):
-        net = self.device_to_ipv4_net.get(device_id)
+    def get_device_mgmtipv4(self, tenantid, deviceid):
+        net = self.device_to_ipv4_net.get(deviceid)
         if net is not None:
             return IPv4Network(net)[2].__str__().split('/')[0]
         return None
 
     # Return the private IP of the device
-    def get_device_mgmtip(self, tenantid, device_id):
-        addr = self.get_device_mgmtipv4(tenantid, device_id)
+    def get_device_mgmtip(self, tenantid, deviceid):
+        addr = self.get_device_mgmtipv4(tenantid, deviceid)
         if addr is None:
-            addr = self.get_device_mgmtipv6(tenantid, device_id)
+            addr = self.get_device_mgmtipv6(tenantid, deviceid)
         return addr

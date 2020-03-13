@@ -12,8 +12,8 @@ import "pymerang/status_codes.proto";
 service Pymerang {
   // Register a device
   rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
-  // Update device registration
-  rpc UpdateTunnelMode(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Update management information
+  rpc UpdateMgmtInfo(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Unregister device registration
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
@@ -35,27 +35,18 @@ message Device {
     repeated Feature features = 2;
 }
 
-/* Tunnel Mode */
-enum TunnelMode {
-    no_tunnel = 0;
-    vxlan = 1;
-    etherws = 2;
-}
-
-/* Tunnel Info */
-message TunnelInfo {
-    TunnelMode tunnel_mode = 1;
-    string device_id = 2;
-    string device_vtep_ip = 3;
-    string controller_vtep_ip = 4;
-    uint32 vtep_mask = 5;
-    string device_external_ip = 6;
-    uint32 device_external_port = 7;
-    uint32 vni = 8;
-    string device_vtep_mac = 9;
-    string controller_vtep_mac = 10;
-    string tenantid = 11;
-    uint32 vxlan_port = 12;
+/* Management Info */
+message MgmtInfo {
+    string tunnel_mode = 1;
+    string device_vtep_ip = 2;
+    string controller_vtep_ip = 3;
+    uint32 vtep_mask = 4;
+    string device_external_ip = 5;
+    uint32 device_external_port = 6;
+    string device_vtep_mac = 8;
+    string controller_vtep_mac = 9;
+    uint32 vxlan_port = 10;
+    string nat_type = 11;
 }
 
 /* Interface */
@@ -72,15 +63,14 @@ message Interface {
 message RegisterDeviceRequest {
   Device device = 1;
   AuthData auth_data = 2;
-  TunnelInfo tunnel_info = 3;
-  string tunnel_mode = 4;
-  string nat_type = 5;
-  repeated Interface interfaces = 6;
+  MgmtInfo mgmt_info = 3;
+  repeated Interface interfaces = 4;
+  string tenantid = 5;
 }
 
 /* Reports the outcome of a gRPC request command */
 message RegisterDeviceReply {
   StatusCode status = 1;
-  TunnelInfo tunnel_info = 2;
-  uint32 vxlan_port = 3;
+  MgmtInfo mgmt_info = 2;
+  string tenantid = 3;
 }
