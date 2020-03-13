@@ -16,6 +16,9 @@ from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
 # SRv6 dependencies
 from srv6_sdn_controller_state import srv6_sdn_controller_state
+# SSL utils
+from srv6_sdn_openssl import ssl
+
 
 # Loopback IP address of the controller
 DEFAULT_PYMERANG_SERVER_IP = '::'
@@ -161,6 +164,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         device_vtep_mac = request.mgmt_info.device_vtep_mac
         # Extract VXLAN port
         vxlan_port = request.mgmt_info.vxlan_port
+        # Authentication data
+        auth_data = request.auth_data
         # Update management information
         logging.debug('Trying to update management information for '
                       'the device %s' % deviceid)
@@ -168,7 +173,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             vtep_mask = self.controller.update_mgmt_info(
                 deviceid, tenantid, interfaces, mgmtip, tunnel_mode, nat_type,
                 device_external_ip, device_external_port,
-                device_vtep_mac, vxlan_port
+                device_vtep_mac, vxlan_port, auth_data
             )
         if response != STATUS_SUCCESS:
             logging.error('Cannot update management information')
@@ -190,6 +195,38 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         # Set the VTEP mask
         if vtep_mask is not None:
             reply.mgmt_info.vtep_mask = vtep_mask
+        # Send the reply
+        logging.info('Sending the reply: %s' % reply)
+        return reply
+
+    def SignCertificate(self, request, context):
+        logging.info('Sign certificate request received: %s' % request)
+        # Extract the parameters from the request
+        #
+        # Device ID
+        deviceid = request.device.id
+        # Certificate Signing Request
+        csr = request.csr
+        # Authentication data
+        auth_data = request.auth_data
+        # Authenticate the device
+        authenticated, tenantid = self.controller.authenticate_device(
+            deviceid, auth_data)
+        if not authenticated:
+            logging.info('Authentication failed for the device %s' % deviceid)
+            return pymerang_pb2.SignCertificateReply(
+                status=STATUS_UNAUTHORIZED)
+        # Get the CA certificate
+        with open(self.controller.client_certificate, 'rb') as f:
+            certificate = f.read()
+        # Sign the certificate
+        cert, key = ssl.generate_cert(csr, certificate)
+        # Create the response
+        reply = pymerang_pb2.SignCertificateReply()
+        # Set the status code
+        reply.status = STATUS_SUCCESS
+        # Add the certificate to the response
+        reply.cert = cert
         # Send the reply
         logging.info('Sending the reply: %s' % reply)
         return reply
@@ -224,8 +261,9 @@ class PymerangController:
     def __init__(self, server_ip='::1', server_port=50051,
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
-                 secure=DEFAULT_SECURE, key=DEFAULT_KEY,
-                 certificate=DEFAULT_CERTIFICATE):
+                 secure=DEFAULT_SECURE, server_key=DEFAULT_KEY,
+                 server_certificate=DEFAULT_CERTIFICATE,
+                 client_certificate=DEFAULT_CERTIFICATE):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
@@ -239,9 +277,11 @@ class PymerangController:
         # Secure mode
         self.secure = secure
         # Server key
-        self.key = key
-        # Certificate
-        self.certificate = certificate
+        self.server_key = server_key
+        # Server certificate
+        self.server_certificate = server_certificate
+        # Client certificate
+        self.client_certificate = client_certificate
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
@@ -337,9 +377,15 @@ class PymerangController:
     def update_mgmt_info(self, deviceid, tenantid, interfaces, mgmtip,
                          tunnel_name, nat_type,
                          device_external_ip, device_external_port,
-                         device_vtep_mac, vxlan_port):
+                         device_vtep_mac, vxlan_port, auth_data):
         logging.info('Updating the management information '
                      'for the device %s' % deviceid)
+        # Device authentication
+        authenticated, _ = self.authenticate_device(
+            deviceid, auth_data)
+        if not authenticated:
+            logging.info('Authentication failed for the device %s' % deviceid)
+            return STATUS_UNAUTHORIZED, None, None
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
         old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(deviceid)
@@ -481,9 +527,9 @@ class PymerangController:
         # If secure mode is enabled, we need to create a secure endpoint
         if self.secure:
             # Read key and certificate
-            with open(self.key, 'rb') as f:
+            with open(self.server_key, 'rb') as f:
                 key = f.read()
-            with open(self.certificate, 'rb') as f:
+            with open(self.server_certificate, 'rb') as f:
                 certificate = f.read()
             # Create server SSL credentials
             grpc_server_credentials = grpc.ssl_server_credentials(

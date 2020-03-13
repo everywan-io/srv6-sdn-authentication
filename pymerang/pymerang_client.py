@@ -18,6 +18,8 @@ from pymerang import utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
+# SSL utils
+from srv6_sdn_openssl import ssl
 
 
 DEFAULT_PYMERANG_SERVER_IP = '2000::1'
@@ -60,7 +62,8 @@ class PymerangDevice:
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
-                 stop_event=None, debug=False):
+                 start_event=None, stop_event=None, restart_event=None,
+                 debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -104,8 +107,12 @@ class PymerangDevice:
         self.controller_vtep_ip = None
         # MAC address of the controller VTEP
         self.controller_vtep_mac = None
+        # IP address of the device VTEP
+        self.device_vtep_ip = None
         # MAC address of the device VTEP
         self.device_vtep_mac = None
+        # Management IP addresses of the device
+        self.device_mgmtips = set()
         # Tunnel state
         self.tunnel_state = None
         # Secure mode
@@ -121,13 +128,24 @@ class PymerangDevice:
         # Flags indicating if the management interface has been configured
         self.tunnel_device_endpoint_configured = False
         self.tunnel_device_endpoint_end_configured = False
+        # Start event. This flag is set when the PymerangDevice
+        # initialization has been completed
+        self.start_event = start_event
         # Stop event. If set, something has requested the termination of
         # the device and we need to deallocate the management interface
         # and gracefully shutdown this script
         self.stop_event = stop_event
+        # Restart event. This flag is set when device modules require
+        # to be restarted (e.g. a certificate expired and the southbound
+        # server has to be restarted with the new certificate or the management
+        # IP address has changed and the certificate has to be renewed)
+        self.restart_event = restart_event
         # Start thread listening for device shutdown
         if stop_event is not None:
             Thread(target=self.shutdown_device).start()
+        # Flag indicating whether the Pymerang Device
+        # has been initialized or not
+        self.initialized = False
 
     # Build a grpc stub
     def get_grpc_session(self, ip_address, port):
@@ -206,6 +224,10 @@ class PymerangDevice:
                             if external_ip is not None:
                                 ext_ipv4_addrs.append(
                                     external_ip)
+                            if nat_type == pynat.OPEN:
+                                # This interface can be used for management
+                                if external_ip != '':
+                                    self.device_mgmtips.add(external_ip)
                         except OSError as e:
                             logging.warning('Error running STUN test with the '
                                             'following parameters\n'
@@ -235,6 +257,10 @@ class PymerangDevice:
                             if external_ip is not None:
                                 ext_ipv6_addrs.append(
                                     external_ip)
+                            if nat_type == pynat.OPEN:
+                                # This interface can be used for management
+                                if external_ip != '':
+                                    self.device_mgmtips.add(external_ip)
                         except OSError as e:
                             logging.warning('Error running STUN test with the '
                                             'following parameters\n'
@@ -307,6 +333,7 @@ class PymerangDevice:
                 # NAT discovery and communication
                 self.vxlan_port = self.nat_discovery_client_port
                 # Return the configuration
+                logging.info("*** RegisterDevice completed\n\n")
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
                 # Authentication failed
@@ -326,7 +353,7 @@ class PymerangDevice:
             # Prepare the registration message
             request = pymerang_pb2.RegisterDeviceRequest()
             # Start registration procedure
-            logging.info("-------------- Update Tunnel Mode --------------")
+            logging.info("-------------- Update Management Info --------------")
             # Add external IP addresses to the request
             for ifinfo in self.interfaces:
                 interface = request.interfaces.add()
@@ -337,6 +364,8 @@ class PymerangDevice:
             request.device.id = self.deviceid
             # Set the tenant ID
             request.tenantid = self.tenantid
+            # Set the token
+            request.auth_data.token = self.token
             # Set the tunnel mode
             request.mgmt_info.tunnel_mode = self.tunnel_mode.name
             # Set the NAT type
@@ -390,7 +419,10 @@ class PymerangDevice:
                 # Extract IP address of the controller's VTEP
                 self.controller_vtep_ip = response.mgmt_info.controller_vtep_ip
                 # Extract IP address of the device's VTEP
-                device_vtep_ip = response.mgmt_info.device_vtep_ip
+                self.device_vtep_ip = response.mgmt_info.device_vtep_ip
+                if self.device_vtep_ip is not None and \
+                        self.device_vtep_ip != '':
+                    self.device_mgmtips.add(self.device_vtep_ip)
                 # Extract mask of the VTEP
                 vtep_mask = response.mgmt_info.vtep_mask
                 # Extract MAC address of the controller's VTEP
@@ -402,7 +434,7 @@ class PymerangDevice:
                     deviceid=self.deviceid,
                     tenantid=self.tenantid,
                     controller_vtep_ip=self.controller_vtep_ip,
-                    device_vtep_ip=device_vtep_ip, vtep_mask=vtep_mask,
+                    device_vtep_ip=self.device_vtep_ip, vtep_mask=vtep_mask,
                     controller_vtep_mac=self.controller_vtep_mac
                 )
                 if res != status_codes_pb2.STATUS_SUCCESS:
@@ -424,11 +456,53 @@ class PymerangDevice:
                                  self.keep_alive_interval,
                                  self.max_keep_alive_lost,
                                  self.stop_event,
-                                 self.update_mgmt_info
+                                 self.secure_update_mgmt_info
                                  ),
                            daemon=False
                            ).start()
                 # Return the configuration
+                logging.info("*** Update Management Info completed\n\n")
+                return status_codes_pb2.STATUS_SUCCESS
+            elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+                # Authentication failed
+                logging.warning('Authentication failed')
+                return status_codes_pb2.STATUS_UNAUTHORIZED
+            else:
+                # Unknown status code
+                logging.warning('Unknown status code: %s' % response.status)
+                return response.status
+
+    def _sign_certificate(self, ip_addresses):
+        # Establish a gRPC connection to the controller
+        with self.get_grpc_session(self.server_ip,
+                                   self.server_port) as channel:
+            # Get the stub
+            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            # Prepare the request message
+            request = pymerang_pb2.SignCertificateRequest()
+            # Start certificate signing
+            logging.info("-------------- Sign SSL Certificate --------------")
+            # Generate a Certification Signing Request
+            print('IPS', ip_addresses)
+            csr, key = ssl.generate_csr('localhost', ip_addresses)
+            # Add CSR to the gRPC request
+            request.csr = csr
+            # Set the device ID
+            request.device.id = self.deviceid
+            # Set the token
+            request.auth_data.token = self.token
+            # Send the update tunnel mode request
+            logging.info('Sending the Certificate Signing Request')
+            response = stub.SignCertificate(request)
+            if response.status == status_codes_pb2.STATUS_SUCCESS:
+                # Extract the certificate signed by the CA
+                cert = response.cert
+                # Save the certificate to file
+                ssl.save_to_file(cert, 'server.crt')
+                # Save the private key to file
+                ssl.save_to_file(key, 'server.key')
+                # Return the configuration
+                logging.info("*** Sign SSL Certificate completed\n\n")
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
                 # Authentication failed
@@ -481,6 +555,28 @@ class PymerangDevice:
                                   '%s - %s' % (status_code, details))
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
 
+    def secure_update_mgmt_info(self):
+        # Update managment interface
+        res = self.update_mgmt_info()
+        if res != status_codes_pb2.STATUS_SUCCESS:
+            return res
+        # Sign certificate, if the secure mode is enabled
+        if self.secure:
+            res = self.sign_certificate(self.device_mgmtips)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                return res
+        if self.initialized:
+            # Already initialized, this is a restart
+            if self.restart_event is not None:
+                self.restart_event.set()
+            # Stop the gRPC server
+            # It is restarted automatically, since we
+            # have set the restart_event flag
+            if self.stop_event is not None:
+                self.stop_event.set()
+        # Return
+        return res
+
     def shutdown_device(self):
         # Wait until a termination signal is received
         self.stop_event.wait()
@@ -506,6 +602,27 @@ class PymerangDevice:
         logging.info('Management interface destroyed')
         return status_codes_pb2.STATUS_SUCCESS
 
+    def sign_certificate(self, ip_addresses):
+        while True:
+            try:
+                # Try to get a certificate from the CA
+                return self._sign_certificate(ip_addresses)
+            except grpc.RpcError as e:
+                status_code = e.code()
+                details = e.details()
+                if grpc.StatusCode.UNAVAILABLE == status_code:
+                    # If the controller is not reachable,
+                    # retry after X seconds
+                    logging.error('Unable to contact controller '
+                                  '(unreachable gRPC server): %s\n\n'
+                                  'Retrying in %s seconds'
+                                  % (details, GRPC_RETRY_INTERVAL))
+                    time.sleep(GRPC_RETRY_INTERVAL)
+                else:
+                    logging.error('Error in sign_certificate(): '
+                                  '%s - %s' % (status_code, details))
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR
+
     def run(self):
         logging.info('Client started')
         # Initialize tunnel state
@@ -517,10 +634,16 @@ class PymerangDevice:
         # Start NAT discovery procedure
         self.run_nat_discovery()
         # Update tunnel mode
-        if self.update_mgmt_info() != \
+        if self.secure_update_mgmt_info() != \
                 status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in update tunnel mode')
             return status_codes_pb2.STATUS_INTERNAL_ERROR
+        # Device initialization completed
+        logging.info('*** Device authentication and registration completed ***'
+                     '\n\n\n')
+        if self.start_event is not None:
+            self.start_event.set()
+        self.initialized = True
 
 
 # Parse options
@@ -546,6 +669,18 @@ def parse_arguments():
     parser.add_argument(
         '-p', '--server-port', dest='server_port',
         default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
+    )
+    # IP address of the certification authority
+    parser.add_argument(
+        '--ca-server-ip', dest='ca_server_ip',
+        default=DEFAULT_PYMERANG_SERVER_IP,
+        help='Certification authority server IP address'
+    )
+    # Port of the gRPC server on the certification authority
+    parser.add_argument(
+        '--ca-server-port', dest='ca_server_port',
+        default=DEFAULT_PYMERANG_SERVER_PORT,
+        help='Certification authority server port'
     )
     # IP address of the NAT discovery server
     parser.add_argument(
@@ -654,6 +789,8 @@ if __name__ == '__main__':
         token_file=token_file,
         keep_alive_interval=keep_alive_interval,
         max_keep_alive_lost=max_keep_alive_lost,
+        start_event=None,
         stop_event=None,
+        restart_event=None,
         debug=debug)
     client.run()
