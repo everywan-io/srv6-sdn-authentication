@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+/* Define package */
+package pymerang;
+
+/* Import status codes */
+import "pymerang/status_codes.proto";
+
+/* Message representing a feature supported by a device */
+message Feature {
+  string name = 1;
+  uint32 port = 2;
+}
+
+/* Authentication data */
+message AuthData {
+  string token = 1;
+}
+
+/* Message representing a device */
+message Device {
+    string id = 1;
+    repeated Feature features = 2;
+}

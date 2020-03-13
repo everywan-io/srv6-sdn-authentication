@@ -199,38 +199,6 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         logging.info('Sending the reply: %s' % reply)
         return reply
 
-    def SignCertificate(self, request, context):
-        logging.info('Sign certificate request received: %s' % request)
-        # Extract the parameters from the request
-        #
-        # Device ID
-        deviceid = request.device.id
-        # Certificate Signing Request
-        csr = request.csr
-        # Authentication data
-        auth_data = request.auth_data
-        # Authenticate the device
-        authenticated, tenantid = self.controller.authenticate_device(
-            deviceid, auth_data)
-        if not authenticated:
-            logging.info('Authentication failed for the device %s' % deviceid)
-            return pymerang_pb2.SignCertificateReply(
-                status=STATUS_UNAUTHORIZED)
-        # Get the CA certificate
-        with open(self.controller.client_certificate, 'rb') as f:
-            certificate = f.read()
-        # Sign the certificate
-        cert, key = ssl.generate_cert(csr, certificate)
-        # Create the response
-        reply = pymerang_pb2.SignCertificateReply()
-        # Set the status code
-        reply.status = STATUS_SUCCESS
-        # Add the certificate to the response
-        reply.cert = cert
-        # Send the reply
-        logging.info('Sending the reply: %s' % reply)
-        return reply
-
     def UnregisterDevice(self, request, context):
         logging.info('Unregister device request: %s' % request)
         # Extract the parameters from the registration request

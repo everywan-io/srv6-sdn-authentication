@@ -4,6 +4,7 @@ syntax = "proto3";
 package pymerang;
 
 /* Import status codes */
+import "pymerang/commons.proto";
 import "pymerang/status_codes.proto";
 
 
@@ -14,27 +15,8 @@ service Pymerang {
   rpc RegisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Update management information
   rpc UpdateMgmtInfo(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
-  // Request to generate a certificate
-  rpc SignCertificate(SignCertificateRequest) returns (SignCertificateReply) {}
   // Unregister device registration
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
-}
-
-/* Message representing a feature supported by a device */
-message Feature {
-  string name = 1;
-  uint32 port = 2;
-}
-
-/* Authentication data */
-message AuthData {
-  string token = 1;
-}
-
-/* Message representing a device */
-message Device {
-    string id = 1;
-    repeated Feature features = 2;
 }
 
 /* Management Info */
@@ -75,17 +57,4 @@ message RegisterDeviceReply {
   StatusCode status = 1;
   MgmtInfo mgmt_info = 2;
   string tenantid = 3;
-}
-
-/* Request for a certificate */
-message SignCertificateRequest {
-  Device device = 1;
-  bytes csr = 2;
-  AuthData auth_data = 3;
-}
-
-/* Reply containing a certificate */
-message SignCertificateReply {
-  StatusCode status = 1;
-  bytes cert = 2;
 }

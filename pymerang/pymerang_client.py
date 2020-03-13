@@ -18,6 +18,8 @@ from pymerang import utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
+from pymerang import cert_authority_pb2
+from pymerang import cert_authority_pb2_grpc
 # SSL utils
 from srv6_sdn_openssl import ssl
 
@@ -56,7 +58,8 @@ GRPC_RETRY_INTERVAL = 10
 
 class PymerangDevice:
 
-    def __init__(self, server_ip, server_port, nat_discovery_server_ip,
+    def __init__(self, server_ip, server_port,
+                 ca_server_ip, ca_server_port, nat_discovery_server_ip,
                  nat_discovery_server_port, nat_discovery_client_ip,
                  nat_discovery_client_port, config_file, token_file,
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
@@ -70,6 +73,10 @@ class PymerangDevice:
         self.server_ip = server_ip
         # Port on which the gRPC server is listening
         self.server_port = server_port
+        # IP address of the CA gRPC server
+        self.ca_server_ip = ca_server_ip
+        # Port on which the CA gRPC server is listening
+        self.ca_server_port = ca_server_port
         # IP address of the NAT discovery server
         self.nat_discovery_server_ip = nat_discovery_server_ip
         # Port of the NAT discovery server
@@ -474,16 +481,15 @@ class PymerangDevice:
 
     def _sign_certificate(self, ip_addresses):
         # Establish a gRPC connection to the controller
-        with self.get_grpc_session(self.server_ip,
-                                   self.server_port) as channel:
+        with self.get_grpc_session(self.ca_server_ip,
+                                   self.ca_server_port) as channel:
             # Get the stub
-            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            stub = cert_authority_pb2_grpc.PymerangStub(channel)
             # Prepare the request message
-            request = pymerang_pb2.SignCertificateRequest()
+            request = cert_authority_pb2.SignCertificateRequest()
             # Start certificate signing
             logging.info("-------------- Sign SSL Certificate --------------")
             # Generate a Certification Signing Request
-            print('IPS', ip_addresses)
             csr, key = ssl.generate_csr('localhost', ip_addresses)
             # Add CSR to the gRPC request
             request.csr = csr
@@ -761,6 +767,10 @@ if __name__ == '__main__':
     server_ip = args.server_ip
     # Server port
     server_port = args.server_port
+    # CA Server IP
+    ca_server_ip = args.ca_server_ip
+    # CA Server port
+    ca_server_port = args.ca_server_port
     # NAT discovery server IP
     nat_discovery_server_ip = args.nat_discovery_server_ip
     # NAT discovery server port
@@ -781,6 +791,8 @@ if __name__ == '__main__':
     client = PymerangDevice(
         server_ip=server_ip,
         server_port=server_port,
+        ca_server_ip=ca_server_ip,
+        ca_server_port=ca_server_port,
         nat_discovery_server_ip=nat_discovery_server_ip,
         nat_discovery_server_port=nat_discovery_server_port,
         nat_discovery_client_ip=nat_discovery_client_ip,
