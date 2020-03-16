@@ -88,7 +88,8 @@ class CertAuthorityServicer(cert_authority_pb2_grpc.CertAuthorityServicer):
         return reply
 
 
-def start_server(self):
+def start_server(server_ip, server_port,
+                 secure, ca_key, ca_cert):
     # Start gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     cert_authority_pb2_grpc.add_CertAuthorityServicer_to_server(
@@ -191,5 +192,10 @@ if __name__ == '__main__':
     # gRPC server port
     server_port = args.server_port
     # Start server
-    start_server(server_ip, server_port,
-                 secure, ca_key, ca_cert)
+    start_server(
+        server_ip=server_ip,
+        server_port=server_port,
+        secure=secure,
+        ca_key=ca_key,
+        ca_cert=ca_cert
+    )

@@ -484,7 +484,7 @@ class PymerangDevice:
         with self.get_grpc_session(self.ca_server_ip,
                                    self.ca_server_port) as channel:
             # Get the stub
-            stub = cert_authority_pb2_grpc.PymerangStub(channel)
+            stub = cert_authority_pb2_grpc.CertAuthorityStub(channel)
             # Prepare the request message
             request = cert_authority_pb2.SignCertificateRequest()
             # Start certificate signing
