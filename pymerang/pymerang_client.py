@@ -155,15 +155,17 @@ class PymerangDevice:
         self.initialized = False
 
     # Build a grpc stub
-    def get_grpc_session(self, ip_address, port):
+    def get_grpc_session(self, address, port):
         # Get the address of the server
-        if utils.getAddressFamily(ip_address) == AF_INET6:
-            server_address = '[%s]:%s' % (ip_address, port)
-        elif utils.getAddressFamily(ip_address) == AF_INET:
-            server_address = '%s:%s' % (ip_address, port)
+        if utils.getAddressFamily(address) == AF_INET6:
+            # IPv6 address
+            server_address = '[%s]:%s' % (address, port)
+        elif utils.getAddressFamily(address) == AF_INET:
+            # IPv4 address
+            server_address = '%s:%s' % (address, port)
         else:
-            logging.critical('Invalid address %s' % self.server_ip)
-            return
+            # Address is a hostname
+            server_address = '%s:%s' % (address, port)
         # If secure we need to establish a channel with the secure endpoint
         if self.secure:
             # Open the certificate file
@@ -479,7 +481,7 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s' % response.status)
                 return response.status
 
-    def _sign_certificate(self, ip_addresses):
+    def _sign_certificate(self, deviceid, ip_addresses):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(self.ca_server_ip,
                                    self.ca_server_port) as channel:
@@ -490,7 +492,7 @@ class PymerangDevice:
             # Start certificate signing
             logging.info("-------------- Sign SSL Certificate --------------")
             # Generate a Certification Signing Request
-            csr, key = ssl.generate_csr('localhost', ip_addresses)
+            csr, key = ssl.generate_csr(deviceid, ip_addresses)
             # Add CSR to the gRPC request
             request.csr = csr
             # Set the device ID
@@ -568,7 +570,7 @@ class PymerangDevice:
             return res
         # Sign certificate, if the secure mode is enabled
         if self.secure:
-            res = self.sign_certificate(self.device_mgmtips)
+            res = self.sign_certificate(self.deviceid, self.device_mgmtips)
             if res != status_codes_pb2.STATUS_SUCCESS:
                 return res
         if self.initialized:
@@ -608,11 +610,11 @@ class PymerangDevice:
         logging.info('Management interface destroyed')
         return status_codes_pb2.STATUS_SUCCESS
 
-    def sign_certificate(self, ip_addresses):
+    def sign_certificate(self, deviceid, ip_addresses):
         while True:
             try:
                 # Try to get a certificate from the CA
-                return self._sign_certificate(ip_addresses)
+                return self._sign_certificate(deviceid, ip_addresses)
             except grpc.RpcError as e:
                 status_code = e.code()
                 details = e.details()
