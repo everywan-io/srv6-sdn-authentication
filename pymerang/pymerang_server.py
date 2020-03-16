@@ -322,7 +322,7 @@ class PymerangController:
             return STATUS_UNAUTHORIZED, None, None
         # If the device is already registered, send it the configuration
         # and create tunnels
-        if srv6_sdn_controller_state.device_exists(deviceid):
+        if srv6_sdn_controller_state.device_exists(deviceid, tenantid):
             logging.warning('The device %s is already registered' % deviceid)
             # TODO configure device
             # TODO create tunnels
@@ -356,7 +356,8 @@ class PymerangController:
             return STATUS_UNAUTHORIZED, None, None
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
-        old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(deviceid)
+        old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(
+            deviceid, tenantid)
         if old_tunnel_mode is not None:
             old_tunnel_mode = self.tunnel_state.tunnel_modes[old_tunnel_mode]
             res = old_tunnel_mode.destroy_tunnel_controller_endpoint(
@@ -365,7 +366,7 @@ class PymerangController:
                 logging.error('Error during '
                               'destroy_tunnel_controller_endpoint')
                 return res, None, None, None
-            srv6_sdn_controller_state.set_tunnel_mode(deviceid, None)
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Get the tunnel mode requested by the device
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_name]
         # Create the tunnel
@@ -400,12 +401,12 @@ class PymerangController:
                 daemon=False).start()
         # Update controller state
         srv6_sdn_controller_state.update_mgmt_info(
-            deviceid, mgmtip, interfaces, tunnel_name,
+            deviceid, tenantid, mgmtip, interfaces, tunnel_name,
             nat_type, device_external_ip,
             device_external_port, device_vtep_mac, vxlan_port)
         # Mark the device as "connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
-            deviceid=deviceid, connected=True)
+            deviceid=deviceid, tenantid=tenantid, connected=True)
         if success is None or success is False:
             err = ('Cannot set the device as connected. '
                    'Error while updating the controller state')
@@ -419,7 +420,7 @@ class PymerangController:
     def unregister_device(self, deviceid, tenantid):
         logging.debug('Unregistering the device %s' % deviceid)
         # Get the device
-        device = srv6_sdn_controller_state.get_device(deviceid)
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
         if device is None:
             logging.error('Device %s not found' % deviceid)
             return STATUS_INTERNAL_ERROR
@@ -444,13 +445,13 @@ class PymerangController:
     def device_disconnected(self, deviceid, tenantid):
         logging.debug('The device %s has been disconnected' % deviceid)
         # Get the device
-        device = srv6_sdn_controller_state.get_device(deviceid)
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
         if device is None:
             logging.error('Device %s not found' % deviceid)
             return STATUS_INTERNAL_ERROR
         # Mark the device as "not connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
-            deviceid=deviceid, connected=False)
+            deviceid=deviceid, tenantid=tenantid, connected=False)
         if success is None or success is False:
             err = ('Cannot set the device as disconnected. '
                    'Error while updating the controller state')

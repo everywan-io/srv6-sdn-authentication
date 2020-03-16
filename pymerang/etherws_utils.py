@@ -237,7 +237,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                                  address=controller_vtep_ip, mask=vtep_mask)
         # Update device VTEP IP address
         success = srv6_sdn_controller_state.update_device_vtep_ip(
-            deviceid, device_vtep_ip)
+            deviceid, tenantid, device_vtep_ip)
         if success is not True:
             logging.error('Error while updating device VTEP IP address')
             # (status_code, controller_vtep_mac,
@@ -300,8 +300,8 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # del_etherws_port(1)
         # Release the private IP address associated to the device
         srv6_sdn_controller_state.release_ipv4_net(
-            deviceid)        # TODO error check
-        srv6_sdn_controller_state.release_ipv6_net(deviceid)
+            deviceid, tenantid)        # TODO error check
+        srv6_sdn_controller_state.release_ipv6_net(deviceid, tenantid)
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 
