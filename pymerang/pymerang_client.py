@@ -54,6 +54,11 @@ DEFAULT_SECURE = False
 DEFAULT_CERTIFICATE = 'cert_client.pem'
 # GRPC retry interval (in seconds)
 GRPC_RETRY_INTERVAL = 10
+# Flag indicating if the device certificate
+# needs to be generated dynamically
+# (with a Certification Signing Request sent
+# to a Certification Authority)
+DYNAMICALLY_GENERATED_CERTIFICATE = False
 
 
 class PymerangDevice:
@@ -569,10 +574,11 @@ class PymerangDevice:
         if res != status_codes_pb2.STATUS_SUCCESS:
             return res
         # Sign certificate, if the secure mode is enabled
-        if self.secure:
-            res = self.sign_certificate(self.deviceid, self.device_mgmtips)
-            if res != status_codes_pb2.STATUS_SUCCESS:
-                return res
+        if DYNAMICALLY_GENERATED_CERTIFICATE:
+            if self.secure:
+                res = self.sign_certificate(self.deviceid, self.device_mgmtips)
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    return res
         if self.initialized:
             # Already initialized, this is a restart
             if self.restart_event is not None:

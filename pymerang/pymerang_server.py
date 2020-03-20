@@ -8,6 +8,8 @@ from socket import AF_INET, AF_INET6
 import logging
 import time
 import grpc
+import subprocess
+import os
 # pymerang dependencies
 from pymerang import utils
 from pymerang import tunnel_utils
@@ -17,7 +19,7 @@ from pymerang import status_codes_pb2
 # SRv6 dependencies
 from srv6_sdn_controller_state import srv6_sdn_controller_state
 # SSL utils
-from srv6_sdn_openssl import ssl
+from srv6_sdn_openssl import ssl, utils as srv6_sdn_utils
 
 
 # Loopback IP address of the controller
@@ -385,10 +387,9 @@ class PymerangController:
             logging.warning('Cannot create the tunnel')
             return res, None, None, None
         # If a private IP address is present, use it as mgmt address
-        res = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid)
-        if res is not None:
-            mgmtip = srv6_sdn_controller_state.get_device_mgmtip(
-                tenantid, deviceid).split('/')[0]
+        _mgmtip = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid)
+        if _mgmtip is not None:
+            mgmtip = _mgmtip.split('/')[0]
         # Send a keep-alive messages to keep the tunnel opened,
         # if required for the tunnel mode
         # After N keep alive messages lost, we assume that the device
@@ -404,6 +405,15 @@ class PymerangController:
             deviceid, tenantid, mgmtip, interfaces, tunnel_name,
             nat_type, device_external_ip,
             device_external_port, device_vtep_mac, vxlan_port)
+        # Add mapping hostname to management IP to the /etc/hosts
+        # of the controller
+        hostname = srv6_sdn_utils.get_device_hostname(tenantid, deviceid)
+        subprocess.check_output(['bash', 'manage-hosts.sh', 'remove', hostname],
+                                cwd=os.path.dirname(
+                                    os.path.realpath(__file__)))
+        subprocess.check_output(['bash', 'manage-hosts.sh', 'add', hostname, mgmtip],
+                                cwd=os.path.dirname(
+                                    os.path.realpath(__file__)))
         # Mark the device as "connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
             deviceid=deviceid, tenantid=tenantid, connected=True)
