@@ -407,7 +407,7 @@ class PymerangController:
             device_external_port, device_vtep_mac, vxlan_port)
         # Add mapping hostname to management IP to the /etc/hosts
         # of the controller
-        hostname = srv6_sdn_utils.get_device_hostname(tenantid, deviceid)
+        hostname = srv6_sdn_utils.get_device_hostname(deviceid, tenantid)
         subprocess.check_output(['bash', 'manage-hosts.sh', 'remove', hostname],
                                 cwd=os.path.dirname(
                                     os.path.realpath(__file__)))
