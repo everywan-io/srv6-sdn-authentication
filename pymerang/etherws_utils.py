@@ -200,7 +200,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         family = tunnel_utils.getAddressFamily(device_external_ip)
         if family == AF_INET6:
             # Change to make dependant from the device ID?
-            net = self.get_new_mgmt_ipv6_net(deviceid)
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv6_net(deviceid)
             net = IPv6Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
