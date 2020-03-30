@@ -16,6 +16,8 @@ from pymerang import tunnel_utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
+from pymerang import cert_authority_pb2
+from pymerang import cert_authority_pb2_grpc
 # SRv6 dependencies
 from srv6_sdn_controller_state import srv6_sdn_controller_state
 # SSL utils
@@ -225,6 +227,34 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         logging.info('Sending the reply: %s' % reply)
         return reply
 
+    def DownloadCertificate(self, request, context):
+        logging.info('Download certificate request received: %s' % request)
+        # Extract the parameters from the request
+        #
+        # Device ID
+        deviceid = request.deviceid
+        # Authentication data
+        auth_data = request.auth_data
+        # Tenant ID
+        tenantid = request.tenantid
+        # Generate certificate
+        cert, key = self.controller._download_certificate(
+            deviceid, auth_data, tenantid)
+        if cert is None or key is None:
+            return (pymerang_pb2
+                    .DownloadCertificateReply(status=STATUS_INTERNAL_ERROR))
+        # Create the response
+        reply = pymerang_pb2.DownloadCertificateReply()
+        # Set the status code
+        reply.status = STATUS_SUCCESS
+        # Add the certificate to the response
+        reply.cert = cert
+        # Add the key to the response
+        reply.key = key
+        # Send the reply
+        logging.info('Sending the reply: %s' % reply)
+        return reply
+
 
 class PymerangController:
 
@@ -233,7 +263,9 @@ class PymerangController:
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, server_key=DEFAULT_KEY,
                  server_certificate=DEFAULT_CERTIFICATE,
-                 client_certificate=DEFAULT_CERTIFICATE):
+                 client_certificate=DEFAULT_CERTIFICATE,
+                 ca_server_ip=DEFAULT_PYMERANG_SERVER_IP,
+                 ca_server_port=DEFAULT_PYMERANG_SERVER_PORT):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
@@ -252,6 +284,10 @@ class PymerangController:
         self.server_certificate = server_certificate
         # Client certificate
         self.client_certificate = client_certificate
+        # IP address of the CA gRPC server
+        self.ca_server_ip = ca_server_ip
+        # Port on which the CA gRPC server is listening
+        self.ca_server_port = ca_server_port
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
@@ -387,7 +423,8 @@ class PymerangController:
             logging.warning('Cannot create the tunnel')
             return res, None, None, None
         # If a private IP address is present, use it as mgmt address
-        _mgmtip = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid)
+        _mgmtip = srv6_sdn_controller_state.get_device_mgmtip(
+            tenantid, deviceid)
         if _mgmtip is not None:
             mgmtip = _mgmtip.split('/')[0]
         # Send a keep-alive messages to keep the tunnel opened,
@@ -397,7 +434,7 @@ class PymerangController:
         if tunnel_mode.require_keep_alive_messages:
             Thread(target=utils.start_keep_alive_icmp, args=(
                 mgmtip, self.keep_alive_interval, self.max_keep_alive_lost,
-                None,
+                None, None,
                 lambda: self.device_disconnected(deviceid, tenantid)),
                 daemon=False).start()
         # Update controller state
@@ -485,6 +522,67 @@ class PymerangController:
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS
+
+    def _sign_certificate(self, csr, auth_data):
+        address = self.ca_server_ip
+        port = self.ca_server_port
+        # Get the address of the server
+        if utils.getAddressFamily(address) == AF_INET6:
+            # IPv6 address
+            server_address = '[%s]:%s' % (address, port)
+        elif utils.getAddressFamily(address) == AF_INET:
+            # IPv4 address
+            server_address = '%s:%s' % (address, port)
+        else:
+            # Address is a hostname
+            server_address = '%s:%s' % (address, port)
+        print(server_address)
+        # Get the CA certificate
+        with open(self.client_certificate, 'rb') as f:
+            certificate = f.read()
+        # Then create the SSL credentials and establish the channel
+        grpc_client_credentials = grpc.ssl_channel_credentials(certificate)
+        # Establish a gRPC connection to the controller
+        with grpc.secure_channel(server_address,
+                                 grpc_client_credentials) as channel:
+            # Get the stub
+            stub = cert_authority_pb2_grpc.CertAuthorityStub(channel)
+            # Prepare the request message
+            request = cert_authority_pb2.SignCertificateRequest()
+            # Add CSR to the gRPC request
+            request.csr = csr
+            # Authentication data
+            request.auth_data.token = auth_data.token
+            # Send the CSR
+            logging.info('Sending the Certificate Signing Request')
+            response = stub.SignCertificate(request)
+            if response.status == status_codes_pb2.STATUS_SUCCESS:
+                # Extract the certificate signed by the CA
+                cert = response.cert
+                # Return the configuration
+                logging.info("*** Sign SSL Certificate completed\n\n")
+                return status_codes_pb2.STATUS_SUCCESS, cert
+            else:
+                # Unknown status code
+                logging.warning('Unknown status code: %s' % response.status)
+                return response.status, None
+
+    def _download_certificate(self, deviceid, auth_data, tenantid):
+        # Authenticate the device
+        authenticated, _tenantid = self.authenticate_device(
+            deviceid, auth_data)
+        if not authenticated or _tenantid != tenantid:
+            logging.info('Authentication failed for the device %s' % deviceid)
+            return pymerang_pb2.DownloadCertificateReply(
+                status=STATUS_UNAUTHORIZED)
+        # Generate a Certification Signing Request
+        csr, key = ssl.generate_csr(deviceid)
+        # Send CSR to the certification authority
+        res, cert = self._sign_certificate(csr, auth_data)
+        if res != STATUS_SUCCESS:
+            return None, None
+        # Return certificate and private key
+        return cert, key
 
     def serve(self):
         # Initialize tunnel state
@@ -576,6 +674,18 @@ def parse_arguments():
         '-k', '--key', dest='key', action='store',
         default=DEFAULT_KEY, help='Server key file'
     )
+    # IP address of the certification authority
+    parser.add_argument(
+        '--ca-server-ip', dest='ca_server_ip',
+        default=DEFAULT_PYMERANG_SERVER_IP,
+        help='Certification authority server IP address'
+    )
+    # Port of the gRPC server on the certification authority
+    parser.add_argument(
+        '--ca-server-port', dest='ca_server_port',
+        default=DEFAULT_PYMERANG_SERVER_PORT,
+        help='Certification authority server port'
+    )
     # Parse input parameters
     args = parser.parse_args()
     # Return the arguments
@@ -608,9 +718,15 @@ if __name__ == '__main__':
     keep_alive_interval = args.keep_alive_interval
     # Max keep alive lost
     max_keep_alive_lost = args.max_keep_alive_lost
+    # CA Server IP
+    ca_server_ip = args.ca_server_ip
+    # CA Server port
+    ca_server_port = args.ca_server_port
     # Start server
     controller = PymerangController(server_ip, server_port,
                                     keep_alive_interval,
                                     max_keep_alive_lost,
-                                    secure, key, certificate)
+                                    secure, key, certificate,
+                                    ca_server_ip=ca_server_ip,
+                                    ca_server_port=ca_server_port)
     controller.serve()

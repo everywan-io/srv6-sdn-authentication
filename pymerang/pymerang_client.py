@@ -11,6 +11,8 @@ import grpc
 import json
 import sys
 import time
+import errno
+from datetime import datetime, timedelta
 # ipaddress dependencies
 from ipaddress import IPv4Address, IPv6Address
 # pymerang dependencies
@@ -59,6 +61,12 @@ GRPC_RETRY_INTERVAL = 10
 # (with a Certification Signing Request sent
 # to a Certification Authority)
 DYNAMICALLY_GENERATED_CERTIFICATE = False
+# Filename of the server certificate
+SERVER_CERT_FILENAME = 'server.crt'
+# Filename of the server private key
+SERVER_KEY_FILENAME = 'server.key'
+# Renewal certificate before (in days)
+RENEW_CERT_BEFORE = 1
 
 
 class PymerangDevice:
@@ -135,6 +143,10 @@ class PymerangDevice:
                               'in secure mode')
                 sys.exit(-2)
             self.certificate = certificate
+        # Filename of the server certificate
+        self.server_cert_filename = SERVER_CERT_FILENAME
+        # Filename of the server private key
+        self.server_key_filename = SERVER_KEY_FILENAME
         # Interfaces on the device
         self.interfaces = list()
         # Flags indicating if the management interface has been configured
@@ -470,6 +482,7 @@ class PymerangDevice:
                                  self.keep_alive_interval,
                                  self.max_keep_alive_lost,
                                  self.stop_event,
+                                 self.restart_event,
                                  self.secure_update_mgmt_info
                                  ),
                            daemon=False
@@ -511,9 +524,9 @@ class PymerangDevice:
                 # Extract the certificate signed by the CA
                 cert = response.cert
                 # Save the certificate to file
-                ssl.save_to_file(cert, 'server.crt')
+                ssl.save_to_file(cert, self.server_cert_filename)
                 # Save the private key to file
-                ssl.save_to_file(key, 'server.key')
+                ssl.save_to_file(key, self.server_key_filename)
                 # Return the configuration
                 logging.info("*** Sign SSL Certificate completed\n\n")
                 return status_codes_pb2.STATUS_SUCCESS
@@ -579,21 +592,26 @@ class PymerangDevice:
                 res = self.sign_certificate(self.deviceid, self.device_mgmtips)
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     return res
-        if self.initialized:
-            # Already initialized, this is a restart
-            if self.restart_event is not None:
-                self.restart_event.set()
-            # Stop the gRPC server
-            # It is restarted automatically, since we
-            # have set the restart_event flag
-            if self.stop_event is not None:
-                self.stop_event.set()
+            if self.initialized:
+                # Already initialized, this is a restart
+                if self.restart_event is not None:
+                    self.restart_event.set()
+                # Stop the gRPC server
+                # It is restarted automatically, since we
+                # have set the restart_event flag
+                if self.stop_event is not None:
+                    self.stop_event.set()
         # Return
         return res
 
     def shutdown_device(self):
         # Wait until a termination signal is received
-        self.stop_event.wait()
+        while True:
+            self.stop_event.wait()
+            if not self.restart_event.is_set():
+                # Restart event is not set
+                # Termination
+                break
         # Received termination signal
         logging.info('Received shutdown command. '
                      'Destroying management interface')
@@ -637,6 +655,126 @@ class PymerangDevice:
                                   '%s - %s' % (status_code, details))
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
 
+    def validate_cert(self, cert_filename):
+        # Validate a certificate
+        try:
+            with open(cert_filename, 'rb') as cert:
+                cert = cert.read()
+                return ssl.validate_cert(cert)
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                logging.info('Certificate not found')
+                return False
+
+    def _download_cert(self):
+        # Establish a gRPC connection to the controller
+        with self.get_grpc_session(self.server_ip,
+                                   self.server_port) as channel:
+            # Get the stub
+            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            # Start registration procedure
+            logging.info("-------------- DownloadCertificate --------------")
+            # Prepare the registration message
+            request = pymerang_pb2.DownloadCertificateRequest()
+            # Set the device ID
+            request.deviceid = self.deviceid
+            # Set the token
+            request.auth_data.token = self.token
+            # Set the tenant ID
+            request.tenantid = self.tenantid
+            # Send the download certificate request
+            logging.info('Sending the download certificate request')
+            response = stub.DownloadCertificate(request)
+            if response.status == status_codes_pb2.STATUS_SUCCESS:
+                logging.info('Certificate download completed')
+                # Extract the certificate signed by the CA
+                cert = response.cert
+                # Extract the private key
+                key = response.key
+                # Save the certificate to file
+                ssl.save_to_file(cert, 'server.crt')
+                # Save the private key to file
+                ssl.save_to_file(key, 'server.key')
+                logging.info("*** DownloadCertificate completed\n\n")
+                return status_codes_pb2.STATUS_SUCCESS
+            elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
+                # Authentication failed
+                logging.warning('Authentication failed')
+                return status_codes_pb2.STATUS_UNAUTHORIZED
+            else:
+                # Unknown status code
+                logging.warning('Unknown status code: %s' % response.status)
+                return response.status
+
+    def download_cert(self):
+        while True:
+            try:
+                # Try to get a certificate from the CA
+                return self._download_cert()
+            except grpc.RpcError as e:
+                status_code = e.code()
+                details = e.details()
+                if grpc.StatusCode.UNAVAILABLE == status_code:
+                    # If the controller is not reachable,
+                    # retry after X seconds
+                    logging.error('Unable to contact controller '
+                                  '(unreachable gRPC server): %s\n\n'
+                                  'Retrying in %s seconds'
+                                  % (details, GRPC_RETRY_INTERVAL))
+                    time.sleep(GRPC_RETRY_INTERVAL)
+                else:
+                    logging.error('Error in download_cert(): '
+                                  '%s - %s' % (status_code, details))
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR
+
+    def manage_certificate(self):
+        if not self.validate_cert(self.server_cert_filename):
+            # Certificate is not valid
+            # Download a new certificate from the controller
+            logging.info('Certificate not found or expired')
+            while True:
+                logging.info('Downloading a new certificate')
+                if self.download_cert() == status_codes_pb2.STATUS_SUCCESS:
+                    break
+                logging.warning('Error in download certificate. Retrying...')
+                time.sleep(3)
+            logging.info('Certificate downloaded successfully')
+        else:
+            logging.info('Found a valid certificate: %s'
+                         % self.server_cert_filename)
+        while True:
+            with open(self.server_cert_filename, 'rb') as server_cert:
+                server_cert = server_cert.read()
+            # Get the certificate expiration
+            expiration = ssl.get_cert_expiration(server_cert)
+            # Wait until the next expiration
+            logging.info('Certificate expires on %s' % expiration)
+            # Establish when the certificate has to be renewed
+            renewal_cert_datetime = expiration - timedelta(
+                days=RENEW_CERT_BEFORE)
+            # Current datetime
+            now = datetime.utcnow()
+            time.sleep((renewal_cert_datetime - now).seconds)
+            logging.info('The certificate of the gRPC server is expiring soon')
+            # Download a new certificate
+            while True:
+                logging.info('Downloading a new certificate')
+                if self.download_cert() == status_codes_pb2.STATUS_SUCCESS:
+                    break
+                logging.warning('Error in download certificate. Retrying...')
+                time.sleep(3)
+            logging.info('Certificate downloaded successfully')
+            # Check if the gRPC has to be restarted
+            if self.initialized:
+                # Already initialized, this is a restart
+                if self.restart_event is not None:
+                    self.restart_event.set()
+                # Stop the gRPC server
+                # It is restarted automatically, since we
+                # have set the restart_event flag
+                if self.stop_event is not None:
+                    self.stop_event.set()
+
     def run(self):
         logging.info('Client started')
         # Initialize tunnel state
@@ -645,6 +783,10 @@ class PymerangDevice:
         if self.register_device() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in device registration')
             return status_codes_pb2.STATUS_INTERNAL_ERROR
+        # Download a certificate for the gRPC server
+        if not DYNAMICALLY_GENERATED_CERTIFICATE:
+            # Download certificate and schedule renewal instants
+            Thread(target=self.manage_certificate).start()
         # Start NAT discovery procedure
         self.run_nat_discovery()
         # Update tunnel mode

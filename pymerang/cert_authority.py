@@ -28,6 +28,8 @@ DEFAULT_SECURE = False
 DEFAULT_CERTIFICATE = 'cert_server.pem'
 # Server key
 DEFAULT_KEY = 'key_server.pem'
+# Certificates expire after X days
+CERT_EXPIRES_AFTER = 3 * 365
 
 # Status codes
 STATUS_SUCCESS = status_codes_pb2.STATUS_SUCCESS
@@ -76,7 +78,8 @@ class CertAuthorityServicer(cert_authority_pb2_grpc.CertAuthorityServicer):
         with open(self.ca_cert, 'rb') as f:
             certificate = f.read()
         # Sign the certificate
-        cert, key = ssl.generate_cert(csr, certificate)
+        cert, key = ssl.generate_cert(
+            csr, certificate, expires_after=CERT_EXPIRES_AFTER)
         # Create the response
         reply = cert_authority_pb2.SignCertificateReply()
         # Set the status code

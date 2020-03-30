@@ -17,6 +17,8 @@ service Pymerang {
   rpc UpdateMgmtInfo(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Unregister device registration
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Download a certificate for the device
+  rpc DownloadCertificate(DownloadCertificateRequest) returns (DownloadCertificateReply) {}
 }
 
 /* Management Info */
@@ -58,3 +60,19 @@ message RegisterDeviceReply {
   MgmtInfo mgmt_info = 2;
   string tenantid = 3;
 }
+
+/* Request to download a certificate for the device */
+message DownloadCertificateRequest {
+  string deviceid = 1;
+  string tenantid = 2;
+  AuthData auth_data = 3;
+}
+
+/* Contains status code and server-generated 
+   certificate for the device */
+message DownloadCertificateReply {
+  StatusCode status = 1;
+  bytes cert = 2;
+  bytes key = 3;
+}
+
