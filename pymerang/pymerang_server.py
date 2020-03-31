@@ -536,7 +536,6 @@ class PymerangController:
         else:
             # Address is a hostname
             server_address = '%s:%s' % (address, port)
-        print(server_address)
         # Get the CA certificate
         with open(self.client_certificate, 'rb') as f:
             certificate = f.read()
@@ -580,6 +579,7 @@ class PymerangController:
         # Send CSR to the certification authority
         res, cert = self._sign_certificate(csr, auth_data)
         if res != STATUS_SUCCESS:
+            logging.error('Error while contacting CA entity')
             return None, None
         # Return certificate and private key
         return cert, key
