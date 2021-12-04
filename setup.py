@@ -42,6 +42,7 @@ setup(
         'tornado>=6.0.3',
         'websocket-client>=0.56.0',
         'ping3>=2.4.0',
-        'pynat'
+        'pynat',
+        'pyroute2'
     ]
 )
