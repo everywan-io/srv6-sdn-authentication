@@ -88,6 +88,11 @@ class PymerangDevice:
             config = json.load(json_file)
         # Save the device ID
         self.deviceid = config['id']
+        # If device ID is not set in the configuration, we read it from the
+        # machine UUID
+        if self.deviceid == '':
+            with open('/sys/devices/virtual/dmi/id/product_uuid', 'r') as uuid_file:
+                self.deviceid = uuid_file.read().rstrip('\n')
         # Save the list of the supported features
         self.features = config.get('features', [])
         # Save interval between two consecutive keep alive messages
