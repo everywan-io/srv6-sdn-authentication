@@ -10,7 +10,13 @@ from pyroute2 import IPRoute
 # pymerang dependencies
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
-from srv6_sdn_controller_state import srv6_sdn_controller_state
+try:
+    from srv6_sdn_controller_state import srv6_sdn_controller_state
+except ModuleNotFoundError:
+    logging.warn('srv6_sdn_controller_state module not found.\n'
+                 'This module is required only for the controller.\n'
+                 'If you are executing the EveryEdge software, you can '
+                 'safely ignore this warning.')
 
 
 # Global variables
