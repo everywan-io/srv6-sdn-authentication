@@ -66,6 +66,7 @@ message RegisterDeviceRequest {
   MgmtInfo mgmt_info = 3;
   repeated Interface interfaces = 4;
   string tenantid = 5;
+  string sid_prefix = 6;
 }
 
 /* Reports the outcome of a gRPC request command */

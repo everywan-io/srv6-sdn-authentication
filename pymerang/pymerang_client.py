@@ -60,7 +60,7 @@ class PymerangDevice:
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
-                 stop_event=None, debug=False):
+                 sid_prefix=None, stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -99,6 +99,8 @@ class PymerangDevice:
         self.keep_alive_interval = keep_alive_interval
         # Max keep alive lost
         self.max_keep_alive_lost = max_keep_alive_lost
+        # Prefix to be used for SRv6 tunnels
+        self.sid_prefix = sid_prefix
         # Read the token from the token file
         with open(token_file, 'r') as token_file:
             # Save the token
@@ -276,6 +278,9 @@ class PymerangDevice:
             request.device.id = self.deviceid
             # Set the token
             request.auth_data.token = self.token
+            # Set the SID prefix
+            if self.sid_prefix is not None:
+                request.sid_prefix = self.sid_prefix
             # Set the features list
             for feature in self.features:
                 f = request.device.features.add()

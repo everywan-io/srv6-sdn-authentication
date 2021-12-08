@@ -385,8 +385,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         remove_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac)
         # Release the private IP address associated to the device
         srv6_sdn_controller_state.release_ipv4_address(
-            deviceid)        # TODO error check
-        srv6_sdn_controller_state.release_ipv6_address(deviceid)
+            deviceid, tenantid)        # TODO error check
+        srv6_sdn_controller_state.release_ipv6_address(deviceid, tenantid)
         # Success
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
