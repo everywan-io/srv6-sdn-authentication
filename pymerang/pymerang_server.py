@@ -67,6 +67,10 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             features.append({'name': name, 'port': port})
         # Data needed for the device authentication
         auth_data = request.auth_data
+        # Prefix to be used for SRv6 tunnels
+        sid_prefix = None
+        if request.sid_prefix != '':
+            sid_prefix = request.sid_prefix
         # Interfaces of the devices
         interfaces = list()
         for interface in request.interfaces:
@@ -101,7 +105,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         response, vxlan_port, tenantid = \
             self.controller.register_device(
                 deviceid, features, interfaces,
-                mgmtip, auth_data
+                mgmtip, auth_data, sid_prefix
             )
         if response != STATUS_SUCCESS:
             return (pymerang_pb2
@@ -304,7 +308,7 @@ class PymerangController:
 
     # Register a device
     def register_device(self, deviceid, features,
-                        interfaces, mgmtip, auth_data):
+                        interfaces, mgmtip, auth_data, sid_prefix=None):
         logging.info('Registering the device %s' % deviceid)
         # Device authentication
         authenticated, tenantid = self.authenticate_device(
@@ -320,7 +324,7 @@ class PymerangController:
             # TODO create tunnels
         # Update controller state
         srv6_sdn_controller_state.register_device(
-            deviceid, features, interfaces, mgmtip, tenantid)
+            deviceid, features, interfaces, mgmtip, tenantid, sid_prefix)
         # Get the tenant configuration
         config = srv6_sdn_controller_state.get_tenant_config(tenantid)
         if config is None:
