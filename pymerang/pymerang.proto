@@ -67,6 +67,7 @@ message RegisterDeviceRequest {
   repeated Interface interfaces = 4;
   string tenantid = 5;
   string sid_prefix = 6;
+  uint32 public_prefix_length = 7;
 }
 
 /* Reports the outcome of a gRPC request command */
