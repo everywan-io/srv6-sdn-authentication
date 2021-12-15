@@ -12,7 +12,7 @@ class NoTunnel(tunnel_utils.TunnelMode):
 
     ''' Direct communication (no tunnel) '''
 
-    def __init__(self, name, priority, controller_ip=None, debug=False):
+    def __init__(self, name, priority, controller_ip=None, debug=False, mongodb_client=None):
         if debug:
             logging.basicConfig(level=logging.DEBUG)
         else:

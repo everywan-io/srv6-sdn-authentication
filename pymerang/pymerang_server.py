@@ -229,7 +229,7 @@ class PymerangController:
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, key=DEFAULT_KEY,
-                 certificate=DEFAULT_CERTIFICATE):
+                 certificate=DEFAULT_CERTIFICATE, mongodb_client=None):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
@@ -246,12 +246,14 @@ class PymerangController:
         self.key = key
         # Certificate
         self.certificate = certificate
+        # MongoDB client
+        self.mongodb_client = mongodb_client
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
         logging.info('*** Restoring management interfaces')
         # Get all the devices
-        devices = srv6_sdn_controller_state.get_devices()
+        devices = srv6_sdn_controller_state.get_devices(client=self.mongodb_client)
         if devices is None:
             logging.error('Cannot retrieve devices list')
             return
@@ -300,7 +302,7 @@ class PymerangController:
         token = auth_data.token
         # Authenticate the device
         authenticated, tenantid = (srv6_sdn_controller_state
-                                   .authenticate_device(token))
+                                   .authenticate_device(token, client=self.mongodb_client))
         if not authenticated:
             return False, None
         # Return the tenant ID
@@ -318,15 +320,15 @@ class PymerangController:
             return STATUS_UNAUTHORIZED, None, None
         # If the device is already registered, send it the configuration
         # and create tunnels
-        if srv6_sdn_controller_state.device_exists(deviceid, tenantid):
+        if srv6_sdn_controller_state.device_exists(deviceid, tenantid, client=self.mongodb_client):
             logging.warning('The device %s is already registered' % deviceid)
             # TODO configure device
             # TODO create tunnels
         # Update controller state
         srv6_sdn_controller_state.register_device(
-            deviceid, features, interfaces, mgmtip, tenantid, sid_prefix)
+            deviceid, features, interfaces, mgmtip, tenantid, sid_prefix, client=self.mongodb_client)
         # Get the tenant configuration
-        config = srv6_sdn_controller_state.get_tenant_config(tenantid)
+        config = srv6_sdn_controller_state.get_tenant_config(tenantid, client=self.mongodb_client)
         if config is None:
             logging.error(
                 'Tenant not found or error while connecting to the db')
@@ -347,7 +349,7 @@ class PymerangController:
         # If a tunnel already exists, we need to destroy it
         # before creating the new tunnel
         old_tunnel_mode = srv6_sdn_controller_state.get_tunnel_mode(
-            deviceid, tenantid)
+            deviceid, tenantid, client=self.mongodb_client)
         if old_tunnel_mode is not None:
             old_tunnel_mode = self.tunnel_state.tunnel_modes[old_tunnel_mode]
             res = old_tunnel_mode.destroy_tunnel_controller_endpoint(
@@ -356,7 +358,7 @@ class PymerangController:
                 logging.error('Error during '
                               'destroy_tunnel_controller_endpoint')
                 return res, None, None, None
-            srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None, client=self.mongodb_client)
         # Get the tunnel mode requested by the device
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_name]
         # Create the tunnel
@@ -375,10 +377,10 @@ class PymerangController:
             logging.warning('Cannot create the tunnel')
             return res, None, None, None
         # If a private IP address is present, use it as mgmt address
-        res = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid)
+        res = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid, client=self.mongodb_client)
         if res is not None:
             mgmtip = srv6_sdn_controller_state.get_device_mgmtip(
-                tenantid, deviceid).split('/')[0]
+                tenantid, deviceid, client=self.mongodb_client).split('/')[0]
         # Send a keep-alive messages to keep the tunnel opened,
         # if required for the tunnel mode
         # After N keep alive messages lost, we assume that the device
@@ -393,10 +395,10 @@ class PymerangController:
         srv6_sdn_controller_state.update_mgmt_info(
             deviceid, tenantid, mgmtip, interfaces, tunnel_name,
             nat_type, device_external_ip,
-            device_external_port, device_vtep_mac, vxlan_port)
+            device_external_port, device_vtep_mac, vxlan_port, client=self.mongodb_client)
         # Mark the device as "connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
-            deviceid=deviceid, tenantid=tenantid, connected=True)
+            deviceid=deviceid, tenantid=tenantid, connected=True, client=self.mongodb_client)
         if success is None or success is False:
             err = ('Cannot set the device as connected. '
                    'Error while updating the controller state')
@@ -410,7 +412,7 @@ class PymerangController:
     def unregister_device(self, deviceid, tenantid):
         logging.debug('Unregistering the device %s' % deviceid)
         # Get the device
-        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid, client=self.mongodb_client)
         if device is None:
             logging.error('Device %s not found' % deviceid)
             return STATUS_INTERNAL_ERROR
@@ -435,13 +437,13 @@ class PymerangController:
     def device_disconnected(self, deviceid, tenantid):
         logging.debug('The device %s has been disconnected' % deviceid)
         # Get the device
-        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid, client=self.mongodb_client)
         if device is None:
             logging.error('Device %s not found' % deviceid)
             return STATUS_INTERNAL_ERROR
         # Mark the device as "not connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
-            deviceid=deviceid, tenantid=tenantid, connected=False)
+            deviceid=deviceid, tenantid=tenantid, connected=False, client=self.mongodb_client)
         if success is None or success is False:
             err = ('Cannot set the device as disconnected. '
                    'Error while updating the controller state')
@@ -461,7 +463,7 @@ class PymerangController:
                 logging.error('Error during '
                               'destroy_tunnel_controller_endpoint')
                 return res
-            srv6_sdn_controller_state.set_tunnel_mode(deviceid, None)
+            srv6_sdn_controller_state.set_tunnel_mode(deviceid, None, client=self.mongodb_client)
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS

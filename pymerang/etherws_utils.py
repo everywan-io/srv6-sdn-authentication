@@ -141,7 +141,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
 
     ''' Ethernet over Websocket tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False, mongodb_client=None):
         # etherws tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -155,6 +155,8 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
             pynat.UDP_FIREWALL,
             pynat.BLOCKED,
         ]
+        # MongoDB client
+        self.mongodb_client = mongodb_client
         # Create the tunnel mode
         super().__init__(name=name,
                          require_keep_alive_messages=req_keep_alive_messages,
@@ -213,7 +215,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
             vtep_mask = net.prefixlen
         # elif family == AF_INET:       # TODO handle IPv6
         elif family == AF_INET:
-            net = srv6_sdn_controller_state.get_new_mgmt_ipv4_net(deviceid)
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv4_net(deviceid, client=self.mongodb_client)
             net = IPv4Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
@@ -243,7 +245,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
                                  address=controller_vtep_ip, mask=vtep_mask)
         # Update device VTEP IP address
         success = srv6_sdn_controller_state.update_device_vtep_ip(
-            deviceid, tenantid, device_vtep_ip)
+            deviceid, tenantid, device_vtep_ip, client=self.mongodb_client)
         if success is not True:
             logging.error('Error while updating device VTEP IP address')
             # (status_code, controller_vtep_mac,
@@ -306,8 +308,8 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # del_etherws_port(1)
         # Release the private IP address associated to the device
         srv6_sdn_controller_state.release_ipv4_net(
-            deviceid, tenantid)        # TODO error check
-        srv6_sdn_controller_state.release_ipv6_net(deviceid, tenantid)
+            deviceid, tenantid, client=self.mongodb_client)        # TODO error check
+        srv6_sdn_controller_state.release_ipv6_net(deviceid, tenantid, client=self.mongodb_client)
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 

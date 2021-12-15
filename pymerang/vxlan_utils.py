@@ -120,7 +120,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
 
     ''' VXLAN tunnel mode '''
 
-    def __init__(self, name, priority, controller_ip, debug=False):
+    def __init__(self, name, priority, controller_ip, debug=False, mongodb_client=None):
         # VXLAN tunnel mode requires to exchange keep alive
         # messages to keep the tunnel open
         req_keep_alive_messages = True
@@ -133,6 +133,8 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         ]
         # Initiated flag used by the controller
         self.initiated = False
+        # Reference to MongoDB client
+        self.mongodb_client = mongodb_client
         # Create tunnel mode
         super().__init__(name=name,
                          require_keep_alive_messages=req_keep_alive_messages,
@@ -224,7 +226,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         vxlan_name = '%s-%s' % (self.name, vni)
         # Save the MAC address of the device's VTEP
         srv6_sdn_controller_state.update_device_vtep_mac(
-            deviceid, tenantid, device_vtep_mac)
+            deviceid, tenantid, device_vtep_mac, client=self.mongodb_client)
         # Init VXLAN tunnel mode
         if not self.initiated:
             self.init_tunnel_controller_endpoint()
@@ -233,18 +235,18 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         family = tunnel_utils.getAddressFamily(device_external_ip)
         if family == socket.AF_INET6:
             ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv6(
-                '0').split('/')
+                '0', client=self.mongodb_client).split('/')
             controller_vtep_ip = ip_mask[0]
             ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv6(
-                deviceid).split('/')
+                deviceid, client=self.mongodb_client).split('/')
             device_vtep_ip = ip_mask[0]
             vtep_mask = int(ip_mask[1])
         elif family == socket.AF_INET:
             ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv4(
-                '0').split('/')
+                '0', client=self.mongodb_client).split('/')
             controller_vtep_ip = ip_mask[0]
             ip_mask = srv6_sdn_controller_state.get_new_mgmt_ipv4(
-                deviceid).split('/')
+                deviceid, client=self.mongodb_client).split('/')
             device_vtep_ip = ip_mask[0]
             vtep_mask = int(ip_mask[1])
         else:
@@ -274,7 +276,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
             ifname=vxlan_name)
         # Update device VTEP IP address
         success = srv6_sdn_controller_state.update_device_vtep_ip(
-            deviceid, tenantid, device_vtep_ip)
+            deviceid, tenantid, device_vtep_ip, client=self.mongodb_client)
         if success is not True:
             logging.error('Error while updating device VTEP IP address')
             # (status_code, controller_vtep_mac,
@@ -362,7 +364,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # Remove the IP neighbor entry that associate the VTEP IP address
         # of the device to the device VTEP MAC address
         device_vtep_ip = srv6_sdn_controller_state.get_device_mgmtip(
-            tenantid, deviceid).split('/')[0]
+            tenantid, deviceid, client=self.mongodb_client).split('/')[0]
         logging.debug('Attempting to remove the neigh from the neigh table\n'
                       'dst=%s, vxlan_name=%s'
                       % (device_vtep_ip, vxlan_name))
@@ -378,15 +380,15 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         # Remove the FDB entry that associate the device VTEP MAC address
         # to the device IP address
         device_vtep_mac = srv6_sdn_controller_state.get_device_vtep_mac(
-            deviceid, tenantid)
+            deviceid, tenantid, client=self.mongodb_client)
         logging.debug('Attempting to remove the entry from the FDB\n'
                       'lladdr=%s, vxlan_name=%s'
                       % (device_vtep_mac, vxlan_name))
         remove_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac)
         # Release the private IP address associated to the device
         srv6_sdn_controller_state.release_ipv4_address(
-            deviceid, tenantid)        # TODO error check
-        srv6_sdn_controller_state.release_ipv6_address(deviceid, tenantid)
+            deviceid, tenantid, client=self.mongodb_client)        # TODO error check
+        srv6_sdn_controller_state.release_ipv6_address(deviceid, tenantid, client=self.mongodb_client)
         # Success
         logging.debug('The VXLAN interface has been removed')
         return status_codes_pb2.STATUS_SUCCESS
@@ -493,7 +495,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         vxlan_name = '%s-%s' % (self.name, vni)
         # Remove the address from the VTEP interface
         ip_mask = srv6_sdn_controller_state.get_device_mgmtipv4(
-            tenantid, '0').split('/')
+            tenantid, '0', client=self.mongodb_client).split('/')
         controller_vtep_ipv4 = ip_mask[0]
         vtep_mask_ipv4 = ip_mask[1]
         logging.debug('Attempting to remove the IP address %s/%s '
@@ -504,7 +506,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                                  mask=vtep_mask_ipv4)
         # Remove the address from the VTEP interface
         ip_mask = srv6_sdn_controller_state.get_device_mgmtipv6(
-            tenantid, '0').split('/')
+            tenantid, '0', client=self.mongodb_client).split('/')
         controller_vtep_ipv6 = ip_mask[0]
         vtep_mask_ipv6 = ip_mask[1]
         logging.debug('Attempting to remove the IP address %s/%s '
