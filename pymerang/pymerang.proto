@@ -68,6 +68,7 @@ message RegisterDeviceRequest {
   string tenantid = 5;
   string sid_prefix = 6;
   uint32 public_prefix_length = 7;
+  bool enable_proxy_ndp = 8;
 }
 
 /* Reports the outcome of a gRPC request command */

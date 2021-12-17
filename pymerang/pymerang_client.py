@@ -61,6 +61,7 @@ class PymerangDevice:
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
                  sid_prefix=None, public_prefix_length=None,
+                 enable_proxy_ndp=True,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -104,6 +105,8 @@ class PymerangDevice:
         self.sid_prefix = sid_prefix
         # Public addressing prefix, used to generate SRv6 SID list
         self.public_prefix_length = public_prefix_length
+        # Define whether to enable or not proxy NDP for SIDs advertisement
+        self.enable_proxy_ndp = enable_proxy_ndp
         # Read the token from the token file
         with open(token_file, 'r') as token_file:
             # Save the token
@@ -287,6 +290,9 @@ class PymerangDevice:
             # Set the public prefix length
             if self.public_prefix_length is not None:
                 request.public_prefix_length = self.public_prefix_length
+            # Define whether to enable or not proxy NDP for SIDs advertisement
+            if self.enable_proxy_ndp is not None:
+                request.enable_proxy_ndp = self.enable_proxy_ndp
             # Set the features list
             for feature in self.features:
                 f = request.device.features.add()
