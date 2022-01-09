@@ -236,7 +236,8 @@ class PymerangController:
                  keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
                  max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
                  secure=DEFAULT_SECURE, key=DEFAULT_KEY,
-                 certificate=DEFAULT_CERTIFICATE):
+                 certificate=DEFAULT_CERTIFICATE,
+                 nb_interface_ref=None):
         # IP address on which the gRPC listens for connections
         self.server_ip = server_ip
         # Port used by the gRPC server
@@ -253,6 +254,8 @@ class PymerangController:
         self.key = key
         # Certificate
         self.certificate = certificate
+        # Reference to the Northbound interface
+        self.nb_interface_ref = nb_interface_ref
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
@@ -328,12 +331,15 @@ class PymerangController:
         # and create tunnels
         if srv6_sdn_controller_state.device_exists(deviceid, tenantid):
             logging.warning('The device %s is already registered' % deviceid)
-            # TODO configure device
-            # TODO create tunnels
-        # Update controller state
-        srv6_sdn_controller_state.register_device(
-            deviceid, features, interfaces, mgmtip, tenantid, sid_prefix,
-            public_prefix_length, enable_proxy_ndp)
+            # TODO spostare dopo la update mgmt tunnel?
+            self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
+        else:
+            # Update controller state
+            srv6_sdn_controller_state.register_device(
+                deviceid, features, interfaces, mgmtip, tenantid, sid_prefix,
+                public_prefix_length, enable_proxy_ndp)
         # Get the tenant configuration
         config = srv6_sdn_controller_state.get_tenant_config(tenantid)
         if config is None:
