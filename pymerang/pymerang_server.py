@@ -349,10 +349,7 @@ class PymerangController:
         # and create tunnels
         if srv6_sdn_controller_state.device_exists(deviceid, tenantid):
             logging.warning('The device %s is already registered' % deviceid)
-            # TODO spostare dopo la update mgmt tunnel?
-            self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-            self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-            self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=True)
         else:
             # Update controller state
             srv6_sdn_controller_state.register_device(
@@ -435,6 +432,12 @@ class PymerangController:
                    'Error while updating the controller state')
             logging.error(err)
             return STATUS_INTERNAL_ERROR
+        if srv6_sdn_controller_state.get_device_reconciliation_flag(
+                deviceid=deviceid, tenantid=tenantid):
+            self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
+            srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=False)
         # Success
         logging.debug('Updated management information: %s' % deviceid)
         return (STATUS_SUCCESS, controller_vtep_mac,
