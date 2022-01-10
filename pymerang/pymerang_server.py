@@ -92,14 +92,32 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             ipv6_addrs = list()
             for addr in interface.ipv6_addrs:
                 ipv6_addrs.append(addr)     # TODO add validation checks?
+            # IPv4 subnets
+            ipv4_subnets = list()
+            for ipv4_subnet in interface.ipv4_subnets:
+                ipv4_subnet.gateway
+                subnet = dict()
+                subnet['subnet'] = ipv4_subnet.subnet
+                if ipv4_subnet.gateway != '':
+                    subnet['gateway'] = ipv4_subnet.gateway
+                ipv4_subnets.append(subnet)     # TODO add validation checks?
+            # IPv6 subnets
+            ipv6_subnets = list()
+            for ipv6_subnet in interface.ipv6_subnets:
+                ipv6_subnet.gateway
+                subnet = dict()
+                subnet['subnet'] = ipv6_subnet.subnet
+                if ipv6_subnet.gateway != '':
+                    subnet['gateway'] = ipv6_subnet.gateway
+                ipv6_subnets.append(subnet)     # TODO add validation checks?
             # Save the interface
             interfaces.append({
                 'name': ifname,
                 'mac_addr': mac_addr,
                 'ipv4_addrs': ipv4_addrs,
                 'ipv6_addrs': ipv6_addrs,
-                'ipv4_subnets': list(),
-                'ipv6_subnets': list(),
+                'ipv4_subnets': ipv4_subnets,
+                'ipv6_subnets': ipv6_subnets,
                 'ext_ipv4_addrs': list(),
                 'ext_ipv6_addrs': list(),
                 'type': utils.InterfaceType.UNKNOWN,

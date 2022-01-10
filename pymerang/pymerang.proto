@@ -49,6 +49,12 @@ message MgmtInfo {
     string nat_type = 11;
 }
 
+/* Subnet */
+message Subnet {
+  string subnet  = 1;
+  string gateway = 2;
+}
+
 /* Interface */
 message Interface {
     string name = 1;
@@ -57,6 +63,8 @@ message Interface {
     repeated string ipv6_addrs = 4;
     repeated string ext_ipv4_addrs = 5;
     repeated string ext_ipv6_addrs = 6;
+    repeated Subnet ipv4_subnets = 7;
+    repeated Subnet ipv6_subnets = 8;
 }
 
 /* RegisterDevice request message */

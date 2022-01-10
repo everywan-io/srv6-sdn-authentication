@@ -12,7 +12,7 @@ import json
 import sys
 import time
 # ipaddress dependencies
-from ipaddress import IPv4Address, IPv6Address
+from ipaddress import IPv4Address, IPv6Address, IPv4Interface, IPv6Interface
 # pymerang dependencies
 from pymerang import utils
 from pymerang import pymerang_pb2
@@ -307,6 +307,12 @@ class PymerangDevice:
                 interface.mac_addr = ifinfo['mac_addr']
                 interface.ipv6_addrs.extend(ifinfo['ipv6_addrs'])
                 interface.ipv4_addrs.extend(ifinfo['ipv4_addrs'])
+                for addr in ifinfo['ipv6_addrs']:
+                    ipv6_subnet = interface.ipv6_subnets.add()
+                    ipv6_subnet.subnet = str(IPv6Interface(addr).network)
+                for addr in ifinfo['ipv4_addrs']:
+                    ipv4_subnet = interface.ipv4_subnets.add()
+                    ipv4_subnet.subnet = str(IPv4Interface(addr).network)
             # Send the registration request
             logging.info('Sending the registration request')
             response = stub.RegisterDevice(request)
