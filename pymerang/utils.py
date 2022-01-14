@@ -111,7 +111,8 @@ def get_local_interfaces():
                     # IPv6 address
                     prefixlen = addr.get('prefixlen')
                     addr = addr.get_attr('IFA_ADDRESS')
-                    ipv6_addrs.append('%s/%s' % (addr, prefixlen))
+                    if not IPv6Interface(addr).is_link_local:
+                        ipv6_addrs.append('%s/%s' % (addr, prefixlen))
                 else:
                     # Invalid address
                     logging.error('Invalid address %s' % addr)
