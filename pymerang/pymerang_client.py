@@ -62,6 +62,8 @@ class PymerangDevice:
                  secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
                  sid_prefix=None, public_prefix_length=None,
                  enable_proxy_ndp=True,
+                 force_ip6tnl=False,
+                 force_srh=False,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -107,6 +109,10 @@ class PymerangDevice:
         self.public_prefix_length = public_prefix_length
         # Define whether to enable or not proxy NDP for SIDs advertisement
         self.enable_proxy_ndp = enable_proxy_ndp
+        # Define whether to force the device using ip6tnl or not
+        self.force_ip6tnl = force_ip6tnl
+        # Define whether to force the device using SRH or not
+        self.force_srh = force_srh
         # Read the token from the token file
         with open(token_file, 'r') as token_file:
             # Save the token
@@ -293,6 +299,12 @@ class PymerangDevice:
             # Define whether to enable or not proxy NDP for SIDs advertisement
             if self.enable_proxy_ndp is not None:
                 request.enable_proxy_ndp = self.enable_proxy_ndp
+            # Define whether to force the device using ip6tnl or not
+            if self.force_ip6tnl is not None:
+                request.force_ip6tnl = self.force_ip6tnl
+            # Define whether to force the device using SRH or not
+            if self.force_srh is not None:
+                request.force_srh = self.force_srh
             # Set the features list
             for feature in self.features:
                 f = request.device.features.add()

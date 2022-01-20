@@ -77,6 +77,8 @@ message RegisterDeviceRequest {
   string sid_prefix = 6;
   uint32 public_prefix_length = 7;
   bool enable_proxy_ndp = 8;
+  bool force_ip6tnl = 9;
+  bool force_srh = 10;
 }
 
 /* Reports the outcome of a gRPC request command */

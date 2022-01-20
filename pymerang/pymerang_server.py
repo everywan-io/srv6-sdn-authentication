@@ -73,6 +73,10 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             sid_prefix = request.sid_prefix
         # Define whether to enable or not proxy NDP for SIDs advertisement
         enable_proxy_ndp = request.enable_proxy_ndp
+        # Define whether to force the device using ip6tnl or not
+        force_ip6tnl = request.force_ip6tnl
+        # Define whether to force the device using SRH or not
+        force_srh = request.force_srh
         # Public prefix length used to compute SRv6 SID list
         public_prefix_length = 128
         if request.public_prefix_length != 0:
@@ -130,7 +134,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             self.controller.register_device(
                 deviceid, features, interfaces,
                 mgmtip, auth_data, sid_prefix,
-                public_prefix_length, enable_proxy_ndp
+                public_prefix_length, enable_proxy_ndp,
+                force_ip6tnl, force_srh
             )
         if response != STATUS_SUCCESS:
             return (pymerang_pb2
@@ -337,7 +342,8 @@ class PymerangController:
     # Register a device
     def register_device(self, deviceid, features,
                         interfaces, mgmtip, auth_data, sid_prefix=None,
-                        public_prefix_length=None, enable_proxy_ndp=True):
+                        public_prefix_length=None, enable_proxy_ndp=True,
+                        force_ip6tnl=False, force_srh=False):
         logging.info('Registering the device %s' % deviceid)
         # Device authentication
         authenticated, tenantid = self.authenticate_device(
@@ -354,7 +360,7 @@ class PymerangController:
             # Update controller state
             srv6_sdn_controller_state.register_device(
                 deviceid, features, interfaces, mgmtip, tenantid, sid_prefix,
-                public_prefix_length, enable_proxy_ndp)
+                public_prefix_length, enable_proxy_ndp, force_ip6tnl, force_srh)
         # Get the tenant configuration
         config = srv6_sdn_controller_state.get_tenant_config(tenantid)
         if config is None:
