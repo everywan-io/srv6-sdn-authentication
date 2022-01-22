@@ -79,6 +79,15 @@ message RegisterDeviceRequest {
   bool enable_proxy_ndp = 8;
   bool force_ip6tnl = 9;
   bool force_srh = 10;
+  SRTransparency incoming_sr_transparency = 11;
+  SRTransparency outgoing_sr_transparency = 12;
+}
+
+enum SRTransparency {
+  UNSPEC = 0;
+  T0 = 1;
+  T1 = 2;
+  OP = 3;
 }
 
 /* Reports the outcome of a gRPC request command */

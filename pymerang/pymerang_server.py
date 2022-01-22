@@ -77,6 +77,22 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         force_ip6tnl = request.force_ip6tnl
         # Define whether to force the device using SRH or not
         force_srh = request.force_srh
+        # Incoming Segment Routing transparency [ t0 | t1 | op ]
+        incoming_sr_transparency = request.incoming_sr_transparency
+        if incoming_sr_transparency == pymerang_pb2.SRTransparency.T1:
+            incoming_sr_transparency = 't1'
+        elif incoming_sr_transparency == pymerang_pb2.SRTransparency.OP:
+            incoming_sr_transparency = 'op'
+        else:  # by default we assume T0 transparency
+            incoming_sr_transparency = 't0'
+        # Outgoing Segment Routing transparency [ t0 | t1 | op ]
+        outgoing_sr_transparency = request.outgoing_sr_transparency
+        if outgoing_sr_transparency == pymerang_pb2.SRTransparency.T1:
+            outgoing_sr_transparency = 't1'
+        elif outgoing_sr_transparency == pymerang_pb2.SRTransparency.OP:
+            outgoing_sr_transparency = 'op'
+        else:  # by default we assume T0 transparency
+            outgoing_sr_transparency = 't0'
         # Public prefix length used to compute SRv6 SID list
         public_prefix_length = 128
         if request.public_prefix_length != 0:
@@ -135,7 +151,8 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 deviceid, features, interfaces,
                 mgmtip, auth_data, sid_prefix,
                 public_prefix_length, enable_proxy_ndp,
-                force_ip6tnl, force_srh
+                force_ip6tnl, force_srh, incoming_sr_transparency,
+                outgoing_sr_transparency
             )
         if response != STATUS_SUCCESS:
             return (pymerang_pb2
@@ -343,7 +360,9 @@ class PymerangController:
     def register_device(self, deviceid, features,
                         interfaces, mgmtip, auth_data, sid_prefix=None,
                         public_prefix_length=None, enable_proxy_ndp=True,
-                        force_ip6tnl=False, force_srh=False):
+                        force_ip6tnl=False, force_srh=False,
+                        incoming_sr_transparency=None,
+                        outgoing_sr_transparency=None):
         logging.info('Registering the device %s' % deviceid)
         # Device authentication
         authenticated, tenantid = self.authenticate_device(
@@ -360,7 +379,8 @@ class PymerangController:
             # Update controller state
             srv6_sdn_controller_state.register_device(
                 deviceid, features, interfaces, mgmtip, tenantid, sid_prefix,
-                public_prefix_length, enable_proxy_ndp, force_ip6tnl, force_srh)
+                public_prefix_length, enable_proxy_ndp, force_ip6tnl, force_srh,
+                incoming_sr_transparency, outgoing_sr_transparency)
         # Get the tenant configuration
         config = srv6_sdn_controller_state.get_tenant_config(tenantid)
         if config is None:

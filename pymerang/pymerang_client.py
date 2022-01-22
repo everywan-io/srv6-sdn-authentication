@@ -64,6 +64,8 @@ class PymerangDevice:
                  enable_proxy_ndp=True,
                  force_ip6tnl=False,
                  force_srh=False,
+                 incoming_sr_transparency=None,
+                 outgoing_sr_transparency=None,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -113,6 +115,10 @@ class PymerangDevice:
         self.force_ip6tnl = force_ip6tnl
         # Define whether to force the device using SRH or not
         self.force_srh = force_srh
+        # Incoming Segment Routing transparency [ t0 | t1 | op ]
+        self.incoming_sr_transparency = incoming_sr_transparency
+        # Outgoing Segment Routing transparency [ t0 | t1 | op ]
+        self.outgoing_sr_transparency = outgoing_sr_transparency
         # Read the token from the token file
         with open(token_file, 'r') as token_file:
             # Save the token
@@ -305,6 +311,22 @@ class PymerangDevice:
             # Define whether to force the device using SRH or not
             if self.force_srh is not None:
                 request.force_srh = self.force_srh
+            # Incoming Segment Routing transparency [ t0 | t1 | op ]
+            if self.incoming_sr_transparency is not None:
+                if self.incoming_sr_transparency == 't0':
+                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.T0
+                elif self.incoming_sr_transparency == 't1':
+                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.T1
+                elif self.incoming_sr_transparency == 'op':
+                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.OP
+            # Outgoing Segment Routing transparency [ t0 | t1 | op ]
+            if self.outgoing_sr_transparency is not None:
+                if self.outgoing_sr_transparency == 't0':
+                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.T0
+                elif self.outgoing_sr_transparency == 't1':
+                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.T1
+                elif self.outgoing_sr_transparency == 'op':
+                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.OP
             # Set the features list
             for feature in self.features:
                 f = request.device.features.add()
