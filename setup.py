@@ -23,11 +23,15 @@ result = subprocess.call("%s -m grpc_tools.protoc %s" % (PYTHON_PATH, args), she
 if result != 0:
     exit(-1)
 
+# Read version from VERSION file
+with open(path.join(here, 'VERSION')) as version_file:
+    version = version_file.read().strip()
+
 # Arguments marked as "Required" below must be included for upload to PyPI.
 # Fields marked as "Optional" may be commented out.
 setup(
     name='pymerang',  
-    version='1.0-beta',
+    version=version,
     description='Pymerang',  # Required
     long_description=long_description,
     long_description_content_type='text/markdown',  # Optional (see note above)
