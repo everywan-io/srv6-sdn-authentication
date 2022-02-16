@@ -261,7 +261,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                       % (device_external_ip, device_vtep_mac,
                          vxlan_name, device_external_port))
         create_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
-                         dst=device_external_ip, port=vxlan_port)
+                         dst=device_external_ip, port=device_external_port)
         # Create a IP neighbor entry that associate the VTEP IP address
         # of the device to the device VTEP MAC address
         logging.debug('Attempting to add the neigh to the neigh table\n'
