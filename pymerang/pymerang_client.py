@@ -523,7 +523,7 @@ class PymerangDevice:
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
 
     def register_device(self):
-        while True:
+        while not self.stop_event.is_set():
             try:
                 # Try to register device
                 return self._register_device()
@@ -542,6 +542,7 @@ class PymerangDevice:
                     logging.error('Error in update_mgmt_info: '
                                   '%s - %s' % (status_code, details))
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
+        logging.info('Stop flag is set. Stopping registration routine.')
 
     def shutdown_device(self):
         # Wait until a termination signal is received
@@ -549,23 +550,26 @@ class PymerangDevice:
         # Received termination signal
         logging.info('Received shutdown command. '
                      'Destroying management interface')
-        # Remove the management interface
-        res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-            self.deviceid, self.tenantid,
-            self.controller_vtep_ip, self.controller_vtep_mac)
-        if res != status_codes_pb2.STATUS_SUCCESS:
-            logging.error('Error during '
-                          'destroy_tunnel_device_endpoint_end')
-            return res
-        self.tunnel_device_endpoint_end_configured = False
-        res = self.tunnel_mode.destroy_tunnel_device_endpoint(
-            self.deviceid, self.tenantid)
-        if res != status_codes_pb2.STATUS_SUCCESS:
-            logging.error('Error during '
-                          'destroy_tunnel_device_endpoint_end')
-            return res
-        self.tunnel_device_endpoint_configured = False
-        logging.info('Management interface destroyed')
+        if self.tunnel_mode is None:
+            logging.info('No tunnel management. Nothing to do.')
+        else:
+            # Remove the management interface
+            res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                self.deviceid, self.tenantid,
+                self.controller_vtep_ip, self.controller_vtep_mac)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                            'destroy_tunnel_device_endpoint_end')
+                return res
+            self.tunnel_device_endpoint_end_configured = False
+            res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+                self.deviceid, self.tenantid)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                            'destroy_tunnel_device_endpoint_end')
+                return res
+            self.tunnel_device_endpoint_configured = False
+            logging.info('Management interface destroyed')
         return status_codes_pb2.STATUS_SUCCESS
 
     def run(self):
