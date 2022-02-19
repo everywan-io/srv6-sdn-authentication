@@ -248,15 +248,27 @@ def start_keep_alive_grpc(dst_ip, interval=10, max_lost=0,
         # grpc_request.device.id = self.deviceid
         # # Set the tenant ID
         # grpc_request.tenantid = self.tenantid
+        current_lost = 0
         while True:
-            logging.debug('Send keep alive message')
-            response = grpc_stub.KeepAlive(grpc_request)
+            logging.debug('Send keep alive message on gRPC')
+            try:
+                response = grpc_stub.KeepAlive(grpc_request)
+                current_lost = 0
+            except grpc.RpcError as e:
+                logging.error('Controller did not reply to the keep alive gRPC')
+                current_lost += 1
+                if max_lost > 0 and current_lost >= max_lost:
+                    if callback is not None:
+                        logging.warning('Too many lost keep alive messages\n')
+                        return callback()
+                    return
             # Check the device state
             if response.device_state == pymerang_pb2.DeviceState.DEVICE_STATE_REBOOT_REQUIRED:
                 logging.info('The EveryEdge device needs to be restarted')
                 if can_reboot:
                     logging.info('Scheduling a restart in %s seconds', 30)
                     os.system('( sleep 30 ; reboot ) &')
+                    exit(0)
                 else:
                     logging.info('Automatic reboot is disabled. Please reboot manually')
                 logging.info('Terminating EveryEdge.')
