@@ -399,6 +399,15 @@ class PymerangController:
 
     def reconciliation_failed(self, deviceid, tenantid):
         logging.error('Reconciliation has failed for device %s.', deviceid)
+        # Reconciliation has failed, we need to reboot the device to bring it
+        # in a consistent state
+        # Change device state to reboot required
+        success = srv6_sdn_controller_state.change_device_state(
+            deviceid=deviceid, tenantid=tenantid,
+            new_state=srv6_sdn_controller_state.DeviceState.REBOOT_REQUIRED)
+        if success is False or success is None:
+            logging.error('Error changing the device state')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR 
         # Increase reconciliation failures counter
         failures = srv6_sdn_controller_state.inc_and_get_reconciliation_failures(
             deviceid=deviceid, tenantid=tenantid)
@@ -406,6 +415,13 @@ class PymerangController:
         if failures >= MAX_ALLOWED_RECONCILIATION_FAILURES:
             # TODO force device disactivation
             logging.error('Too many failures for device %s (%d failures)', deviceid, failures)
+            # Change device state to failure state
+            success = srv6_sdn_controller_state.change_device_state(
+                deviceid=deviceid, tenantid=tenantid,
+                new_state=srv6_sdn_controller_state.DeviceState.FAILURE)
+            if success is False or success is None:
+                logging.error('Error changing the device state')
+                return status_codes_pb2.STATUS_INTERNAL_ERROR 
         else:
             logging.error('Trying to reboot device %s', deviceid)
             if srv6_sdn_controller_state.can_reboot_device(
@@ -418,6 +434,13 @@ class PymerangController:
                 self.srv6_manager.reboot_device(
                     server_ip=device['mgmtip'],
                     server_port=self.grpc_client_port)
+                # Change device state to reboot required
+                success = srv6_sdn_controller_state.change_device_state(
+                    deviceid=deviceid, tenantid=tenantid,
+                    new_state=srv6_sdn_controller_state.DeviceState.REBOOTING)
+                if success is False or success is None:
+                    logging.error('Error changing the device state')
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR 
             else:
                 # Reboot is disabled for the device, manual reboot is required
                 # to bring the device in a consistent state
@@ -426,7 +449,6 @@ class PymerangController:
                               'reconciliation procedure and bring the device '
                               'in a consistent state. Please reboot the device '
                               'manually.')
-                
 
     # Update tunnel mode
     def update_mgmt_info(self, deviceid, tenantid, interfaces, mgmtip,
@@ -523,6 +545,14 @@ class PymerangController:
                    'Error while updating the controller state' % deviceid)
             logging.error(err)
             return STATUS_INTERNAL_ERROR, None, None, None
+        # Device registration and authentication completed successfully,
+        # now it is working
+        success = srv6_sdn_controller_state.change_device_state(
+            deviceid=deviceid, tenantid=tenantid,
+            new_state=srv6_sdn_controller_state.DeviceState.WORKING)
+        if success is False or success is None:
+            logging.error('Error changing the device state')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR 
         # Success
         logging.debug('Updated management information: %s' % deviceid)
         return (STATUS_SUCCESS, controller_vtep_mac,
