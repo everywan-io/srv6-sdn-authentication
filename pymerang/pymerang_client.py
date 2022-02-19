@@ -66,6 +66,7 @@ class PymerangDevice:
                  force_srh=False,
                  incoming_sr_transparency=None,
                  outgoing_sr_transparency=None,
+                 allow_reboot=False,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -146,6 +147,8 @@ class PymerangDevice:
         # Flags indicating if the management interface has been configured
         self.tunnel_device_endpoint_configured = False
         self.tunnel_device_endpoint_end_configured = False
+        # Is reboot allowed
+        self.allow_reboot = allow_reboot
         # Stop event. If set, something has requested the termination of
         # the device and we need to deallocate the management interface
         # and gracefully shutdown this script
@@ -500,7 +503,8 @@ class PymerangDevice:
                                 self.update_mgmt_info,
                                 self.server_ip,
                                 self.server_port,
-                                request
+                                request,
+                                self.allow_reboot
                                 ),
                         daemon=False
                         ).start()
