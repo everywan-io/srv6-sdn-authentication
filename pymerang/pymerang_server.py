@@ -17,6 +17,8 @@ from pymerang import status_codes_pb2
 # SRv6 dependencies
 from srv6_sdn_controller_state import srv6_sdn_controller_state
 
+from rollbackcontext import RollbackContext
+
 # Loopback IP address of the controller
 DEFAULT_PYMERANG_SERVER_IP = '::'
 # Port of the gRPC server executing on the controller
@@ -40,6 +42,8 @@ DEFAULT_VXLAN_PORT = 4789
 STATUS_SUCCESS = status_codes_pb2.STATUS_SUCCESS
 STATUS_UNAUTHORIZED = status_codes_pb2.STATUS_UNAUTHORIZED
 STATUS_INTERNAL_ERROR = status_codes_pb2.STATUS_INTERNAL_ERROR
+
+MAX_ALLOWED_RECONCILIATION_FAILURES = 10
 
 
 class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
@@ -393,6 +397,37 @@ class PymerangController:
         logging.debug('New device registered:\n%s' % deviceid)
         return STATUS_SUCCESS, vxlan_port, tenantid
 
+    def reconciliation_failed(self, deviceid, tenantid):
+        logging.error('Reconciliation has failed for device %s.', deviceid)
+        # Increase reconciliation failures counter
+        failures = srv6_sdn_controller_state.inc_and_get_reconciliation_failures(
+            deviceid=deviceid, tenantid=tenantid)
+        logging.error('%s failures.', failures)
+        if failures >= MAX_ALLOWED_RECONCILIATION_FAILURES:
+            # TODO force device disactivation
+            logging.error('Too many failures for device %s (%d failures)', deviceid, failures)
+        else:
+            logging.error('Trying to reboot device %s', deviceid)
+            if srv6_sdn_controller_state.can_reboot_device(
+                    deviceid=deviceid, tenantid=tenantid):
+                device = srv6_sdn_controller_state.get_device(
+                    deviceid=deviceid, tenantid=tenantid)
+                if device is None:
+                    logging.error('Error getting device')
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR    
+                self.srv6_manager.reboot_device(
+                    server_ip=device['mgmtip'],
+                    server_port=self.grpc_client_port)
+            else:
+                # Reboot is disabled for the device, manual reboot is required
+                # to bring the device in a consistent state
+                logging.error('Reboot is disabled for device %s', deviceid)
+                logging.error('Manual reboot is required to start the '
+                              'reconciliation procedure and bring the device '
+                              'in a consistent state. Please reboot the device '
+                              'manually.')
+                
+
     # Update tunnel mode
     def update_mgmt_info(self, deviceid, tenantid, interfaces, mgmtip,
                          tunnel_name, nat_type,
@@ -457,13 +492,37 @@ class PymerangController:
             err = ('Cannot set the device as connected. '
                    'Error while updating the controller state')
             logging.error(err)
-            return STATUS_INTERNAL_ERROR
+            return STATUS_INTERNAL_ERROR, None, None, None
         if srv6_sdn_controller_state.get_device_reconciliation_flag(
                 deviceid=deviceid, tenantid=tenantid):
-            self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-            self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-            self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
-            srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=False)
+            with RollbackContext() as rollback:
+                rollback.push(
+                    func=self.reconciliation_failed,
+                    deviceid=deviceid,
+                    tenantid=tenantid
+                )
+                res = self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return (res, controller_vtep_mac,
+                            controller_vtep_ip, device_vtep_ip, vtep_mask)
+                res = self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return (res, controller_vtep_mac,
+                            controller_vtep_ip, device_vtep_ip, vtep_mask)
+                res = self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return (res, controller_vtep_mac,
+                            controller_vtep_ip, device_vtep_ip, vtep_mask)
+                srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=False)
+                # Success, commit all performed operations
+                rollback.commitAll()
+        # Reconciliation successful, reset the failures counter
+        success = srv6_sdn_controller_state.reset_reconciliation_failures(deviceid=deviceid, tenantid=tenantid)
+        if success is None or success is False:
+            err = ('Cannot reset the reconciliation failures counter for device %s. '
+                   'Error while updating the controller state' % deviceid)
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR, None, None, None
         # Success
         logging.debug('Updated management information: %s' % deviceid)
         return (STATUS_SUCCESS, controller_vtep_mac,
