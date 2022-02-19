@@ -159,14 +159,27 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 outgoing_sr_transparency
             )
         if response != STATUS_SUCCESS:
+            # Get the device
+            device = srv6_sdn_controller_state.get_device(
+                deviceid=deviceid, tenantid=tenantid)
+            if device is None:
+                logging.error('Error getting device')
+                return status_codes_pb2.STATUS_INTERNAL_ERROR
             return (pymerang_pb2
-                    .RegisterDeviceReply(status=response))
+                    .RegisterDeviceReply(status=response, device_state=device.get('state', srv6_sdn_controller_state.DeviceState.UNKNOWN.value)))
         # Set the status code
         reply.status = STATUS_SUCCESS
         # Set the VXLAN port
         reply.mgmt_info.vxlan_port = vxlan_port
         # Set the tenant ID
         reply.tenantid = tenantid
+        # Get the device
+        device = srv6_sdn_controller_state.get_device(
+            deviceid=deviceid, tenantid=tenantid)
+        if device is None:
+            logging.error('Error getting device')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
+        reply.device_state = device.get('state', srv6_sdn_controller_state.DeviceState.UNKNOWN.value)
         # Send the reply
         logging.info('Device registered succefully. '
                      'Sending the reply: %s' % reply)
@@ -271,6 +284,26 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             status=STATUS_SUCCESS
         )
         logging.info('Sending the reply: %s' % reply)
+        return reply
+
+    def KeepAlive(self, request, context):
+        logging.debug('Received keep alive message on the gRPC channel')
+        # Device ID
+        deviceid = request.device.id
+        # Tenant ID
+        tenantid = request.tenantid
+        # Get the device
+        device = srv6_sdn_controller_state.get_device(
+            deviceid=deviceid, tenantid=tenantid)
+        if device is None:
+            logging.error('Error getting device')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
+        # Report the status to the device
+        reply = pymerang_pb2.RegisterDeviceReply(
+            status=STATUS_SUCCESS,
+            device_state=device.get('state', srv6_sdn_controller_state.DeviceState.UNKNOWN.value)
+        )
+        logging.debug('Sending the reply: %s' % reply)
         return reply
 
 
@@ -426,21 +459,27 @@ class PymerangController:
             logging.error('Trying to reboot device %s', deviceid)
             if srv6_sdn_controller_state.can_reboot_device(
                     deviceid=deviceid, tenantid=tenantid):
-                device = srv6_sdn_controller_state.get_device(
-                    deviceid=deviceid, tenantid=tenantid)
-                if device is None:
-                    logging.error('Error getting device')
-                    return status_codes_pb2.STATUS_INTERNAL_ERROR    
-                self.srv6_manager.reboot_device(
-                    server_ip=device['mgmtip'],
-                    server_port=self.grpc_client_port)
-                # Change device state to reboot required
-                success = srv6_sdn_controller_state.change_device_state(
-                    deviceid=deviceid, tenantid=tenantid,
-                    new_state=srv6_sdn_controller_state.DeviceState.REBOOTING)
-                if success is False or success is None:
-                    logging.error('Error changing the device state')
-                    return status_codes_pb2.STATUS_INTERNAL_ERROR 
+                # device = srv6_sdn_controller_state.get_device(
+                #     deviceid=deviceid, tenantid=tenantid)
+                # if device is None:
+                #     logging.error('Error getting device')
+                #     return status_codes_pb2.STATUS_INTERNAL_ERROR    
+                # self.srv6_manager.reboot_device(
+                #     server_ip=device['mgmtip'],
+                #     server_port=self.grpc_client_port)
+                # # Change device state to reboot required
+                # success = srv6_sdn_controller_state.change_device_state(
+                #     deviceid=deviceid, tenantid=tenantid,
+                #     new_state=srv6_sdn_controller_state.DeviceState.REBOOTING)
+                # if success is False or success is None:
+                #     logging.error('Error changing the device state')
+                #     return status_codes_pb2.STATUS_INTERNAL_ERROR 
+                #
+                # TODO currently, the state is communicated to the device in the reply to the 
+                # update tunnel message, it is responsibility of the device to reboot
+                # itself if the state is reboot required
+                # maybe we can implement a reboot RPC in the future...
+                logging.error('Reboot is required for device %s', deviceid)
             else:
                 # Reboot is disabled for the device, manual reboot is required
                 # to bring the device in a consistent state

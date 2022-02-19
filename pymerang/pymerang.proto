@@ -16,6 +16,8 @@ service Pymerang {
   rpc UpdateMgmtInfo(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Unregister device registration
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Keep Alive
+  rpc KeepAlive(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
 
 /* Message representing a feature supported by a device */
@@ -90,9 +92,19 @@ enum SRTransparency {
   OP = 3;
 }
 
+enum DeviceState {
+  DEVICE_STATE_UNKNOWN = 0;
+  DEVICE_STATE_WORKING = 1;
+  DEVICE_STATE_REBOOT_REQUIRED = 2;
+  DEVICE_STATE_ADMIN_DISABLED = 3;
+  DEVICE_STATE_REBOOTING = 4;
+  DEVICE_STATE_FAILURE = 5;
+}
+
 /* Reports the outcome of a gRPC request command */
 message RegisterDeviceReply {
   StatusCode status = 1;
   MgmtInfo mgmt_info = 2;
   string tenantid = 3;
+  DeviceState device_state = 4;
 }

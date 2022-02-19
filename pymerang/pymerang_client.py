@@ -490,6 +490,20 @@ class PymerangDevice:
                                  ),
                            daemon=False
                            ).start()
+                # Send keep-alive messages on the gRPC channel to check the
+                # device state
+                Thread(target=utils.start_keep_alive_grpc,
+                        args=(self.controller_mgmtip,
+                                self.keep_alive_interval,
+                                self.max_keep_alive_lost,
+                                self.stop_event,
+                                self.update_mgmt_info,
+                                self.server_ip,
+                                self.server_port,
+                                request
+                                ),
+                        daemon=False
+                        ).start()
                 # Return the configuration
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:

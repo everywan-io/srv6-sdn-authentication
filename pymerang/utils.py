@@ -7,6 +7,8 @@ import pynat
 from ipaddress import ip_address, IPv6Network, IPv4Network
 from ipaddress import IPv4Interface, IPv6Interface, AddressValueError
 from urllib.parse import urlparse
+import grpc
+import os
 import socket
 import time
 from ping3 import ping
@@ -16,6 +18,9 @@ from socket import AF_INET, AF_INET6
 from pymerang import no_tunnel
 from pymerang import vxlan_utils
 from pymerang import etherws_utils
+
+from pymerang import pymerang_pb2
+from pymerang import pymerang_pb2_grpc
 
 # NAT types
 NAT_TYPES = [
@@ -196,6 +201,83 @@ def start_keep_alive_udp(dst_ip, dst_port, interval=30):
         send_keep_alive_udp(dst_ip, dst_port)
         # Wait for X seconds before sending the next keep alive
         time.sleep(interval)
+
+# Build a grpc stub
+def get_grpc_session(ip_address, port, secure=False, certificate=None):
+    # Get the address of the server
+    if getAddressFamily(ip_address) == AF_INET6:
+        server_address = '[%s]:%s' % (ip_address, port)
+    elif getAddressFamily(ip_address) == AF_INET:
+        server_address = '%s:%s' % (ip_address, port)
+    else:
+        logging.critical('Invalid address %s' % ip_address)
+        return
+    # If secure we need to establish a channel with the secure endpoint
+    if secure:
+        # Open the certificate file
+        with open(certificate, 'rb') as f:
+            certificate = f.read()
+        # Then create the SSL credentials and establish the channel
+        grpc_client_credentials = grpc.ssl_channel_credentials(certificate)
+        channel = grpc.secure_channel(server_address,
+                                        grpc_client_credentials)
+    else:
+        channel = grpc.insecure_channel(server_address)
+    return channel
+
+
+# Start sending keep alive messages using the gRPC channel
+def start_keep_alive_grpc(dst_ip, interval=10, max_lost=0,
+                          stop_event=None, callback=None,
+                          server_ip=None, server_port=None, grpc_request=None, can_reboot=False):
+    logging.info('Start sending gRPC keep alive messages to %s\n'
+                 'Interval set to %s seconds' % (server_ip, interval))
+    if server_ip is None or server_port is None:
+        logging.error('Missing required parameters server_ip/server_port')
+        return
+    if grpc_request is None:
+        logging.error('Missing required parameters grpc_request')
+        return
+    # Establish a gRPC connection to the controller
+    with get_grpc_session(server_ip, server_port) as channel:
+        # Get the stub
+        grpc_stub = pymerang_pb2_grpc.PymerangStub(channel)
+        # # Prepare the keep alive message
+        # grpc_request = pymerang_pb2.RegisterDeviceRequest()
+        # # Set the device ID
+        # grpc_request.device.id = self.deviceid
+        # # Set the tenant ID
+        # grpc_request.tenantid = self.tenantid
+        while True:
+            logging.debug('Send keep alive message')
+            response = grpc_stub.KeepAlive(grpc_request)
+            # Check the device state
+            if response.device_state == pymerang_pb2.DeviceState.DEVICE_STATE_REBOOT_REQUIRED:
+                logging.info('The EveryEdge device needs to be restarted')
+                if can_reboot:
+                    logging.info('Scheduling a restart in %s seconds', 30)
+                    os.system('( sleep 30 ; reboot ) &')
+                else:
+                    logging.info('Automatic reboot is disabled. Please reboot manually')
+                logging.info('Terminating EveryEdge.')
+                stop_event.set()
+            elif response.device_state == pymerang_pb2.DeviceState.DEVICE_STATE_FAILURE:
+                logging.fatal('The controller detected too many failures on the device')
+                logging.fatal('Please remove the device from the EveryWAN GUI and restart the EveryEdge')
+                logging.info('Terminating EveryEdge.')
+                stop_event.set()
+            # Wait for X seconds before sending the next keep alive
+            if stop_event is not None:
+                # If shutdown device has been requested,
+                # stop_event is set and wait() returns true
+                if stop_event.wait(timeout=interval) is True:
+                    # Shutdown device operation requested
+                    # Stop sending keep alive messages
+                    logging.info('Termination flag set')
+                    logging.info('Stop sending keep alive messages')
+                    return
+            else:
+                time.sleep(interval)
 
 
 # Allocates private IPv6 addresses
