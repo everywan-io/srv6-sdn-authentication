@@ -66,6 +66,7 @@ class PymerangDevice:
                  force_srh=False,
                  incoming_sr_transparency=None,
                  outgoing_sr_transparency=None,
+                 allow_reboot=False,
                  stop_event=None, debug=False):
         # Debug mode
         self.debug = debug
@@ -146,6 +147,8 @@ class PymerangDevice:
         # Flags indicating if the management interface has been configured
         self.tunnel_device_endpoint_configured = False
         self.tunnel_device_endpoint_end_configured = False
+        # Is reboot allowed
+        self.allow_reboot = allow_reboot
         # Stop event. If set, something has requested the termination of
         # the device and we need to deallocate the management interface
         # and gracefully shutdown this script
@@ -490,6 +493,21 @@ class PymerangDevice:
                                  ),
                            daemon=False
                            ).start()
+                # Send keep-alive messages on the gRPC channel to check the
+                # device state
+                Thread(target=utils.start_keep_alive_grpc,
+                        args=(self.controller_mgmtip,
+                                self.keep_alive_interval,
+                                self.max_keep_alive_lost,
+                                self.stop_event,
+                                self.update_mgmt_info,
+                                self.server_ip,
+                                self.server_port,
+                                request,
+                                self.allow_reboot
+                                ),
+                        daemon=False
+                        ).start()
                 # Return the configuration
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
@@ -523,7 +541,7 @@ class PymerangDevice:
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
 
     def register_device(self):
-        while True:
+        while not self.stop_event.is_set():
             try:
                 # Try to register device
                 return self._register_device()
@@ -542,6 +560,7 @@ class PymerangDevice:
                     logging.error('Error in update_mgmt_info: '
                                   '%s - %s' % (status_code, details))
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
+        logging.info('Stop flag is set. Stopping registration routine.')
 
     def shutdown_device(self):
         # Wait until a termination signal is received
@@ -549,23 +568,26 @@ class PymerangDevice:
         # Received termination signal
         logging.info('Received shutdown command. '
                      'Destroying management interface')
-        # Remove the management interface
-        res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-            self.deviceid, self.tenantid,
-            self.controller_vtep_ip, self.controller_vtep_mac)
-        if res != status_codes_pb2.STATUS_SUCCESS:
-            logging.error('Error during '
-                          'destroy_tunnel_device_endpoint_end')
-            return res
-        self.tunnel_device_endpoint_end_configured = False
-        res = self.tunnel_mode.destroy_tunnel_device_endpoint(
-            self.deviceid, self.tenantid)
-        if res != status_codes_pb2.STATUS_SUCCESS:
-            logging.error('Error during '
-                          'destroy_tunnel_device_endpoint_end')
-            return res
-        self.tunnel_device_endpoint_configured = False
-        logging.info('Management interface destroyed')
+        if self.tunnel_mode is None:
+            logging.info('No tunnel management. Nothing to do.')
+        else:
+            # Remove the management interface
+            res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                self.deviceid, self.tenantid,
+                self.controller_vtep_ip, self.controller_vtep_mac)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                            'destroy_tunnel_device_endpoint_end')
+                return res
+            self.tunnel_device_endpoint_end_configured = False
+            res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+                self.deviceid, self.tenantid)
+            if res != status_codes_pb2.STATUS_SUCCESS:
+                logging.error('Error during '
+                            'destroy_tunnel_device_endpoint_end')
+                return res
+            self.tunnel_device_endpoint_configured = False
+            logging.info('Management interface destroyed')
         return status_codes_pb2.STATUS_SUCCESS
 
     def run(self):
