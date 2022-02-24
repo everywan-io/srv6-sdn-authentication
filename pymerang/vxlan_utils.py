@@ -7,6 +7,7 @@ import socket
 import pynat
 # pyroute2 dependencies
 from pyroute2 import IPRoute
+from pyroute2.netlink.exceptions import NetlinkError
 # pymerang dependencies
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
@@ -267,7 +268,7 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
         logging.debug('Attempting to add the neigh to the neigh table\n'
                       'dst=%s, lladdr=%s, vxlan_name=%s'
                       % (device_vtep_ip, device_vtep_mac, vxlan_name))
-        tunnel_utils.create_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
+        tunnel_utils.create_or_update_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
                                      dst=device_vtep_ip)
         # Update and return the tunnel info
         controller_vtep_mac = tunnel_utils.get_mac_address(
