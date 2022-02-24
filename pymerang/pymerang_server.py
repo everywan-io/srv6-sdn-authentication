@@ -653,7 +653,7 @@ class PymerangController:
                 return res
             srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Clear management information on the database
-        srv6_sdn_controller_state.clear_mgmt_info(deviceid, tenantid, None)
+        srv6_sdn_controller_state.clear_mgmt_info(deviceid, tenantid)
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS
