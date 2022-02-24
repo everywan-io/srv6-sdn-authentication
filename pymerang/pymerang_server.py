@@ -306,6 +306,30 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
         logging.debug('Sending the reply: %s' % reply)
         return reply
 
+    def ExecReconciliation(self, request, context):
+        logging.debug('Received ExecReconciliation message on the gRPC channel')
+        # Device ID
+        deviceid = request.device.id
+        # Tenant ID
+        tenantid = request.tenantid
+        # Execute reconciliation
+        res = self.controller.exec_reconciliation(
+            deviceid=deviceid, tenantid=tenantid)
+        if res != STATUS_SUCCESS:
+            logging.error('Error in exec_reconciliation')
+        # Get the device
+        device = srv6_sdn_controller_state.get_device(deviceid, tenantid)
+        if device is None:
+            logging.error('Device %s not found' % deviceid)
+            return STATUS_INTERNAL_ERROR
+        # Report the status to the device
+        reply = pymerang_pb2.RegisterDeviceReply(
+            status=res,
+            device_state=device.get('state', device_state=device.get('state', srv6_sdn_controller_state.DeviceState.UNKNOWN.value))
+        )
+        logging.debug('Sending the reply: %s' % reply)
+        return reply
+
 
 class PymerangController:
 
@@ -507,7 +531,7 @@ class PymerangController:
             if res != status_codes_pb2.STATUS_SUCCESS:
                 logging.error('Error during '
                               'destroy_tunnel_controller_endpoint')
-                return res, None, None, None
+                return res, None, None, None, None
             srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Get the tunnel mode requested by the device
         tunnel_mode = self.tunnel_state.tunnel_modes[tunnel_name]
@@ -525,7 +549,7 @@ class PymerangController:
             )
         if res != STATUS_SUCCESS:
             logging.warning('Cannot create the tunnel')
-            return res, None, None, None
+            return res, None, None, None, None
         # If a private IP address is present, use it as mgmt address
         res = srv6_sdn_controller_state.get_device_mgmtip(tenantid, deviceid)
         if res is not None:
@@ -553,37 +577,14 @@ class PymerangController:
             err = ('Cannot set the device as connected. '
                    'Error while updating the controller state')
             logging.error(err)
-            return STATUS_INTERNAL_ERROR, None, None, None
-        if srv6_sdn_controller_state.get_device_reconciliation_flag(
-                deviceid=deviceid, tenantid=tenantid):
-            with RollbackContext() as rollback:
-                rollback.push(
-                    func=self.reconciliation_failed,
-                    deviceid=deviceid,
-                    tenantid=tenantid
-                )
-                res = self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-                if res != 200:
-                    return (res, controller_vtep_mac,
-                            controller_vtep_ip, device_vtep_ip, vtep_mask)
-                res = self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
-                if res != 200:
-                    return (res, controller_vtep_mac,
-                            controller_vtep_ip, device_vtep_ip, vtep_mask)
-                res = self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
-                if res != 200:
-                    return (res, controller_vtep_mac,
-                            controller_vtep_ip, device_vtep_ip, vtep_mask)
-                srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=False)
-                # Success, commit all performed operations
-                rollback.commitAll()
-        # Reconciliation successful, reset the failures counter
-        success = srv6_sdn_controller_state.reset_reconciliation_failures(deviceid=deviceid, tenantid=tenantid)
-        if success is None or success is False:
-            err = ('Cannot reset the reconciliation failures counter for device %s. '
-                   'Error while updating the controller state' % deviceid)
-            logging.error(err)
-            return STATUS_INTERNAL_ERROR, None, None, None
+            return STATUS_INTERNAL_ERROR, None, None, None, None
+        # Update gRPC IP used by STAMP
+        stamp_node = self.nb_interface_ref.stamp_controller.storage.get_stamp_node(
+            node_id=deviceid, tenantid=tenantid)
+        if stamp_node is not None:
+            self.nb_interface_ref.stamp_controller.storage.update_stamp_node(
+                node_id=deviceid, tenantid=tenantid, grpc_ip=mgmtip
+        )
         # Device registration and authentication completed successfully,
         # now it is working
         success = srv6_sdn_controller_state.change_device_state(
@@ -591,7 +592,7 @@ class PymerangController:
             new_state=srv6_sdn_controller_state.DeviceState.WORKING)
         if success is False or success is None:
             logging.error('Error changing the device state')
-            return status_codes_pb2.STATUS_INTERNAL_ERROR 
+            return STATUS_INTERNAL_ERROR, None, None, None, None
         # Success
         logging.debug('Updated management information: %s' % deviceid)
         return (STATUS_SUCCESS, controller_vtep_mac,
@@ -653,10 +654,41 @@ class PymerangController:
                 return res
             srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Clear management information on the database
-        srv6_sdn_controller_state.clear_mgmt_info(deviceid, tenantid, None)
+        srv6_sdn_controller_state.clear_mgmt_info(deviceid, tenantid)
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS
+
+    def exec_reconciliation(self, deviceid, tenantid):
+        if srv6_sdn_controller_state.get_device_reconciliation_flag(
+                deviceid=deviceid, tenantid=tenantid):
+            with RollbackContext() as rollback:
+                rollback.push(
+                    func=self.reconciliation_failed,
+                    deviceid=deviceid,
+                    tenantid=tenantid
+                )
+                res = self.nb_interface_ref.prepare_db_for_device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return res
+                res = self.nb_interface_ref.device_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return res
+                res = self.nb_interface_ref.overlay_reconciliation(deviceid=deviceid, tenantid=tenantid)
+                if res != 200:
+                    return res
+                srv6_sdn_controller_state.set_device_reconciliation_flag(deviceid, tenantid, flag=False)
+                # Success, commit all performed operations
+                rollback.commitAll()
+        # Reconciliation successful, reset the failures counter
+        success = srv6_sdn_controller_state.reset_reconciliation_failures(deviceid=deviceid, tenantid=tenantid)
+        if success is None or success is False:
+            err = ('Cannot reset the reconciliation failures counter for device %s. '
+                   'Error while updating the controller state' % deviceid)
+            logging.error(err)
+            return STATUS_INTERNAL_SERVER_ERROR
+        return STATUS_SUCCESS
+        
 
     def serve(self):
         # Initialize tunnel state

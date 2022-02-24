@@ -18,6 +18,8 @@ service Pymerang {
   rpc UnregisterDevice(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
   // Keep Alive
   rpc KeepAlive(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
+  // Execute reconciliation
+  rpc ExecReconciliation(RegisterDeviceRequest) returns (RegisterDeviceReply) {}
 }
 
 /* Message representing a feature supported by a device */

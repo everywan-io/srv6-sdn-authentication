@@ -7,6 +7,7 @@ import socket
 import pynat
 # pyroute2 dependencies
 from pyroute2 import IPRoute
+from pyroute2.netlink.exceptions import NetlinkError
 # pymerang dependencies
 from pymerang import tunnel_utils
 from pymerang import status_codes_pb2
@@ -97,14 +98,15 @@ def create_fdb_entry(dst, lladdr, dev, port=VXLAN_DSTPORT):
                      port=port)
 
 
-def update_fdb_entry(dst, lladdr, dev):
+def update_fdb_entry(dst, lladdr, dev, port=None):
     # Get pyroute2 instance
     with IPRoute() as ip_route:
         # Replace the entry
         ip_route.fdb('replace',
                      ifindex=ip_route.link_lookup(ifname=dev)[0],
                      lladdr=lladdr,
-                     dst=dst)
+                     dst=dst,
+                     port=port)
 
 
 def remove_fdb_entry(lladdr, dev):
@@ -114,6 +116,18 @@ def remove_fdb_entry(lladdr, dev):
         ip_route.fdb('del',
                      ifindex=ip_route.link_lookup(ifname=dev)[0],
                      lladdr=lladdr)
+
+
+def create_or_update_fdb_entry(dst, lladdr, dev, port=VXLAN_DSTPORT):
+    try:
+        logging.debug('Trying to create the FDB entry, dst %s, lladdr %s, dev %s, port %s', dst, lladdr, dev, port)
+        return create_fdb_entry(dst, lladdr, dev, port)
+    except NetlinkError as e:
+        if e.code == 17:
+            logging.debug('The FDB entry already exists')
+            logging.debug('Updating existing FDB entry')
+            return update_fdb_entry(dst, lladdr, dev, port)
+        raise e
 
 
 class TunnelVXLAN(tunnel_utils.TunnelMode):
@@ -260,14 +274,14 @@ class TunnelVXLAN(tunnel_utils.TunnelMode):
                       'dst=%s, lladdr=%s, vxlan_name=%s, port=%s'
                       % (device_external_ip, device_vtep_mac,
                          vxlan_name, device_external_port))
-        create_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
+        create_or_update_fdb_entry(dev=vxlan_name, lladdr=device_vtep_mac,
                          dst=device_external_ip, port=device_external_port)
         # Create a IP neighbor entry that associate the VTEP IP address
         # of the device to the device VTEP MAC address
         logging.debug('Attempting to add the neigh to the neigh table\n'
                       'dst=%s, lladdr=%s, vxlan_name=%s'
                       % (device_vtep_ip, device_vtep_mac, vxlan_name))
-        tunnel_utils.create_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
+        tunnel_utils.create_or_update_ip_neigh(dev=vxlan_name, lladdr=device_vtep_mac,
                                      dst=device_vtep_ip)
         # Update and return the tunnel info
         controller_vtep_mac = tunnel_utils.get_mac_address(

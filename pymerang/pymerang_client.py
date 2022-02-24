@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from threading import Thread
 from socket import AF_INET, AF_INET6
 import logging
+import os
 import pynat
 import grpc
 import json
@@ -18,6 +19,8 @@ from pymerang import utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
+# pyroute2 dependencies
+from pyroute2.netlink.exceptions import NetlinkError
 
 
 DEFAULT_PYMERANG_SERVER_IP = '2000::1'
@@ -36,7 +39,7 @@ DEFAULT_NAT_DISCOVERY_SERVER_PORT = 3478
 # Config file
 DEFAULT_CONFIG_FILE = '/tmp/config.json'
 # Default interval between two keep alive messages
-DEFAULT_KEEP_ALIVE_INTERVAL = 30
+DEFAULT_KEEP_ALIVE_INTERVAL = 5
 # Max number of keep alive messages lost
 # before taking a corrective action
 DEFAULT_MAX_KEEP_ALIVE_LOST = 3
@@ -67,7 +70,7 @@ class PymerangDevice:
                  incoming_sr_transparency=None,
                  outgoing_sr_transparency=None,
                  allow_reboot=False,
-                 stop_event=None, debug=False):
+                 stop_event=None, reboot_required=None, debug=False):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -153,6 +156,8 @@ class PymerangDevice:
         # the device and we need to deallocate the management interface
         # and gracefully shutdown this script
         self.stop_event = stop_event
+        # Set if a reboot is required
+        self.reboot_required = reboot_required
         # Start thread listening for device shutdown
         if stop_event is not None:
             Thread(target=self.shutdown_device).start()
@@ -519,6 +524,31 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s' % response.status)
                 return response.status
 
+    def _exec_reconciliation(self):
+        # Establish a gRPC connection to the controller
+        with self.get_grpc_session(self.server_ip,
+                                   self.server_port) as channel:
+            # Get the stub
+            stub = pymerang_pb2_grpc.PymerangStub(channel)
+            # Start registration procedure
+            logging.info("-------------- ExecReconciliation --------------")
+            # Prepare the registration message
+            request = pymerang_pb2.RegisterDeviceRequest()
+            # Set the device ID
+            request.device.id = self.deviceid
+            # Set the tenant ID
+            request.tenantid = self.tenantid
+            # Send the reconciliation request
+            logging.info('Sending the reconciliation request')
+            response = stub.RegisterDevice(request)
+            if response.status == status_codes_pb2.STATUS_SUCCESS:
+                logging.info('Device reconciliation completed successfully')
+                return status_codes_pb2.STATUS_SUCCESS
+            else:
+                # Unknown status code
+                logging.warning('Unknown status code: %s' % response.status)
+                return response.status
+
     def update_mgmt_info(self):
         while True:
             try:
@@ -567,18 +597,27 @@ class PymerangDevice:
         self.stop_event.wait()
         # Received termination signal
         logging.info('Received shutdown command. '
-                     'Destroying management interface')
+                     'Destroying management interface in 5 seconds')
+        time.sleep(5)
         if self.tunnel_mode is None:
             logging.info('No tunnel management. Nothing to do.')
         else:
             # Remove the management interface
-            res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-                self.deviceid, self.tenantid,
-                self.controller_vtep_ip, self.controller_vtep_mac)
-            if res != status_codes_pb2.STATUS_SUCCESS:
-                logging.error('Error during '
-                            'destroy_tunnel_device_endpoint_end')
-                return res
+            try:
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                    self.deviceid, self.tenantid,
+                    self.controller_vtep_ip, self.controller_vtep_mac)
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Error during '
+                                'destroy_tunnel_device_endpoint_end')
+                    return res
+            except NetlinkError as e:
+                if e.code == 2:  # NO_SUCH_FILE_OR_DIRECTORY
+                    logging.warning('An error occurred in destroy_tunnel_device_endpoint_end: %s' % e)
+                    logging.warning('Ignoring it and trying to perform shutdown')
+                else:
+                    logging.error('Error in destroy_tunnel_device_endpoint_end: %s' % e)
+                    raise e
             self.tunnel_device_endpoint_end_configured = False
             res = self.tunnel_mode.destroy_tunnel_device_endpoint(
                 self.deviceid, self.tenantid)
@@ -588,7 +627,34 @@ class PymerangDevice:
                 return res
             self.tunnel_device_endpoint_configured = False
             logging.info('Management interface destroyed')
+        if self.reboot_required is not None:
+            if self.reboot_required.is_set() and self.allow_reboot:
+                logging.info('Sending reboot command...')
+                os.system('shutdown -r now')
+            self.reboot_required.clear()
         return status_codes_pb2.STATUS_SUCCESS
+
+    def exec_reconciliation(self):
+        while not self.stop_event.is_set():
+            try:
+                # Try to reconcile the device
+                return self._exec_reconciliation()
+            except grpc.RpcError as e:
+                status_code = e.code()
+                details = e.details()
+                if grpc.StatusCode.UNAVAILABLE == status_code:
+                    # If the controller is not reachable,
+                    # retry after X seconds
+                    logging.error('Unable to contact controller '
+                                  '(unreachable gRPC server): %s\n\n'
+                                  'Retrying in %s seconds'
+                                  % (details, GRPC_RETRY_INTERVAL))
+                    time.sleep(GRPC_RETRY_INTERVAL)
+                else:
+                    logging.error('Error in start_reconciliation: '
+                                  '%s - %s' % (status_code, details))
+                    return status_codes_pb2.STATUS_INTERNAL_ERROR
+        logging.info('Stop flag is set. Stopping start_reconciliation routine.')
 
     def run(self):
         logging.info('Client started')
@@ -604,6 +670,11 @@ class PymerangDevice:
         if self.update_mgmt_info() != \
                 status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in update tunnel mode')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
+        # Execute reconciliation, if required
+        if self.exec_reconciliation() != \
+                status_codes_pb2.STATUS_SUCCESS:
+            logging.warning('Error in reconciliation')
             return status_codes_pb2.STATUS_INTERNAL_ERROR
 
 

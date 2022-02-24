@@ -7,6 +7,7 @@ from ipaddress import IPv6Interface, IPv4Interface, AddressValueError
 # pyroute2 dependencies
 from pyroute2 import IPRoute
 from pyroute2.netlink.rtnl import ndmsg
+from pyroute2.netlink.exceptions import NetlinkError
 
 
 def enable_interface(device):
@@ -104,6 +105,18 @@ def remove_ip_neigh(dst, dev):
         ip_route.neigh('del',
                        dst=dst,
                        ifindex=idx)
+
+
+def create_or_update_ip_neigh(dst, lladdr, dev):
+    try:
+        logging.debug('Trying to create the IP neigh, dst %s, lladdr %s, dev %s', dst, lladdr, dev)
+        return create_ip_neigh(dst, lladdr, dev)
+    except NetlinkError as e:
+        if e.code == 17:
+            logging.debug('The IP neigh entity already exists')
+            logging.debug('Updating existing IP neigh')
+            return update_ip_neigh(dst, lladdr, dev)
+        raise(e)
 
 
 # Utiliy function to check if the IP
