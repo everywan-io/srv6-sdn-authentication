@@ -36,7 +36,7 @@ DEFAULT_NAT_DISCOVERY_SERVER_PORT = 3478
 # Config file
 DEFAULT_CONFIG_FILE = '/tmp/config.json'
 # Default interval between two keep alive messages
-DEFAULT_KEEP_ALIVE_INTERVAL = 30
+DEFAULT_KEEP_ALIVE_INTERVAL = 5
 # Max number of keep alive messages lost
 # before taking a corrective action
 DEFAULT_MAX_KEEP_ALIVE_LOST = 3
