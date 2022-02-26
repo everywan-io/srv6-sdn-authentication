@@ -59,8 +59,13 @@ def add_route(dst, gateway, dev, family):
     # Get pyroute2 instance
     with IPRoute() as ip_route:
         # Create the route
-        ip_route.route('add', dst=dst, oif=ip_route.link_lookup(ifname=dev)[0],
-                       gateway=gateway, family=family)
+        ip_route.route(
+            'add',
+            dst=dst,
+            oif=ip_route.link_lookup(ifname=dev)[0],
+            gateway=gateway,
+            family=family
+        )
 
 
 def get_mac_address(ifname):
@@ -76,11 +81,13 @@ def create_ip_neigh(dst, lladdr, dev):
         # Add a permanent record on veth0
         idx = ip_route.link_lookup(ifname=dev)[0]
         # Create the neigh
-        ip_route.neigh('add',
-                       dst=dst,
-                       lladdr=lladdr,
-                       ifindex=idx,
-                       state=ndmsg.states['permanent'])
+        ip_route.neigh(
+            'add',
+            dst=dst,
+            lladdr=lladdr,
+            ifindex=idx,
+            state=ndmsg.states['permanent']
+        )
 
 
 def update_ip_neigh(dst, lladdr, dev):
@@ -89,11 +96,13 @@ def update_ip_neigh(dst, lladdr, dev):
         # Add a permanent record on veth0
         idx = ip_route.link_lookup(ifname=dev)[0]
         # Create the neigh
-        ip_route.neigh('replace',
-                       dst=dst,
-                       lladdr=lladdr,
-                       ifindex=idx,
-                       state=ndmsg.states['permanent'])
+        ip_route.neigh(
+            'replace',
+            dst=dst,
+            lladdr=lladdr,
+            ifindex=idx,
+            state=ndmsg.states['permanent']
+        )
 
 
 def remove_ip_neigh(dst, dev):
@@ -102,14 +111,21 @@ def remove_ip_neigh(dst, dev):
         # Get the index of the interface
         idx = ip_route.link_lookup(ifname=dev)[0]
         # Remove the neigh
-        ip_route.neigh('del',
-                       dst=dst,
-                       ifindex=idx)
+        ip_route.neigh(
+            'del',
+            dst=dst,
+            ifindex=idx
+        )
 
 
 def create_or_update_ip_neigh(dst, lladdr, dev):
     try:
-        logging.debug('Trying to create the IP neigh, dst %s, lladdr %s, dev %s', dst, lladdr, dev)
+        logging.debug(
+            'Trying to create the IP neigh, dst %s, lladdr %s, dev %s',
+            dst,
+            lladdr,
+            dev
+        )
         return create_ip_neigh(dst, lladdr, dev)
     except NetlinkError as e:
         if e.code == 17:
@@ -162,14 +178,26 @@ class TunnelMode:
     Class representing a tunnel mode use for controller-device communication
     '''
 
-    def __init__(self, name, require_keep_alive_messages, supported_nat_types,
-                 priority, controller_ip, debug=False):
-        logging.info('Initiating the tunnel mode:\n'
-                     'name=%s\npriority=%s\ncontroller_ip=%s\n'
-                     'require_keep_alive_messages=%s\n'
-                     'supported_nat_types=%s\n'
-                     % (name, priority, controller_ip,
-                        require_keep_alive_messages, supported_nat_types))
+    def __init__(
+        self,
+        name,
+        require_keep_alive_messages,
+        supported_nat_types,
+        priority,
+        controller_ip,
+        debug=False
+    ):
+        logging.info(
+            'Initiating the tunnel mode:\n'
+            'name=%s\npriority=%s\ncontroller_ip=%s\n'
+            'require_keep_alive_messages=%s\n'
+            'supported_nat_types=%s\n',
+            name,
+            priority,
+            controller_ip,
+            require_keep_alive_messages,
+            supported_nat_types
+        )
         # Debug mode
         if debug:
             logging.basicConfig(level=logging.DEBUG)
@@ -202,9 +230,11 @@ class TunnelMode:
         # self.reusable_ipv4_nets = set()
         # # Set of reusable IPv6 nets
         # self.reusable_ipv6_nets = set()
-        # # Mapping device ID to private IPv4 address (stored in the controller)
+        # # Mapping device ID to private IPv4 address (stored in the
+        # # controller)
         # self.device_to_mgmt_ipv4 = dict()
-        # # Mapping device ID to private IPv6 address (stored in the controller)
+        # # Mapping device ID to private IPv6 address (stored in the
+        # # controller)
         # self.device_to_mgmt_ipv6 = dict()
         # # Set of reusable IPv4 addresses
         # self.reusable_ipv4_addresses = set()
@@ -224,18 +254,27 @@ class TunnelMode:
         raise NotImplementedError
 
     # Invoked on the device, after the controller reply
-    def create_tunnel_device_endpoint_end(self, deviceid, tenantid,
-                                          controller_vtep_ip,
-                                          device_vtep_ip, vtep_mask,
-                                          controller_vtep_mac):
+    def create_tunnel_device_endpoint_end(
+        self,
+        deviceid,
+        tenantid,
+        controller_vtep_ip,
+        device_vtep_ip,
+        vtep_mask,
+        controller_vtep_mac
+    ):
         raise NotImplementedError
 
     # Invoked on the controller, when the registration request is received
-    def create_tunnel_controller_endpoint(self, deviceid, tenantid,
-                                          device_external_ip,
-                                          device_external_port,
-                                          vxlan_port,
-                                          device_vtep_mac):
+    def create_tunnel_controller_endpoint(
+        self,
+        deviceid,
+        tenantid,
+        device_external_ip,
+        device_external_port,
+        vxlan_port,
+        device_vtep_mac
+    ):
         raise NotImplementedError
 
     # Invoked on the device, when the tunnel has to be destroyed
@@ -251,25 +290,40 @@ class TunnelMode:
         raise NotImplementedError
 
     # Invoked on the device, before the update request
-    def update_tunnel_device_endpoint(self, deviceid, tenantid,
-                                      controller_vtep_ip,
-                                      device_vtep_ip, vtep_mask,
-                                      controller_vtep_mac):
+    def update_tunnel_device_endpoint(
+        self,
+        deviceid,
+        tenantid,
+        controller_vtep_ip,
+        device_vtep_ip,
+        vtep_mask,
+        controller_vtep_mac
+    ):
         raise NotImplementedError
 
     # Invoked on the device, after the controller reply
-    def update_tunnel_device_endpoint_end(self, deviceid, tenantid,
-                                          controller_vtep_ip,
-                                          device_vtep_ip, vtep_mask,
-                                          controller_vtep_mac):
+    def update_tunnel_device_endpoint_end(
+        self,
+        deviceid,
+        tenantid,
+        controller_vtep_ip,
+        device_vtep_ip,
+        vtep_mask,
+        controller_vtep_mac
+    ):
         raise NotImplementedError
 
     # Invoked on the controller, when the update request is received
-    def update_tunnel_controller_endpoint(self, deviceid, tenantid,
-                                          device_external_ip,
-                                          device_external_port,
-                                          device_vtep_mask, vxlan_port,
-                                          device_vtep_mac):
+    def update_tunnel_controller_endpoint(
+        self,
+        deviceid,
+        tenantid,
+        device_external_ip,
+        device_external_port,
+        device_vtep_mask,
+        vxlan_port,
+        device_vtep_mac
+    ):
         raise NotImplementedError
 
     # # Return the private IPv6 of the device
