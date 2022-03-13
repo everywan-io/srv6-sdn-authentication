@@ -190,14 +190,16 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         )
         create_etherws_tap(device=tap_name)
         # Add the private address
+        self.device_vtep_ip = device_vtep_ip
+        self.vtep_mask = vtep_mask
         logging.debug(
             'Attempting to assign the IP address %s/%s '
             'to the TAP management interface %s',
-            device_vtep_ip,
+            self.device_vtep_ip,
             vtep_mask, tap_name
         )
         tunnel_utils.add_address(
-            device=tap_name, address=device_vtep_ip, mask=vtep_mask
+            device=tap_name, address=self.device_vtep_ip, mask=vtep_mask
         )
         # Create the etherws websocket interface
         logging.debug(
@@ -228,7 +230,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         family = tunnel_utils.getAddressFamily(device_external_ip)
         if family == AF_INET6:
             # Change to make dependant from the device ID?
-            net = self.get_new_mgmt_ipv6_net(deviceid)
+            net = srv6_sdn_controller_state.get_new_mgmt_ipv6_net(deviceid)
             net = IPv6Network(net)
             controller_vtep_ip = net[1].__str__()
             device_vtep_ip = net[2].__str__()
@@ -325,7 +327,7 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         if device_vtep_ip is not None:
             logging.debug(
                 'Attempting to remove the IP address %s/%s '
-                'from the VXLAN management interface %s',
+                'from the TAP management interface %s',
                 device_vtep_ip,
                 vtep_mask,
                 tap_name
@@ -360,10 +362,23 @@ class TunnelEtherWs(tunnel_utils.TunnelMode):
         # Delete the TAP interface
         # del_etherws_port(1)
         # Release the private IP address associated to the device
-        srv6_sdn_controller_state.release_ipv4_net(
-            deviceid, tenantid
-        )  # TODO error check
-        srv6_sdn_controller_state.release_ipv6_net(deviceid, tenantid)
+        mgmtip = srv6_sdn_controller_state.get_device_mgmtip(
+            tenantid=tenantid, deviceid=deviceid
+        )
+        family = tunnel_utils.getAddressFamily(mgmtip)
+        if family == AF_INET:
+            srv6_sdn_controller_state.release_ipv4_net(
+                deviceid=deviceid, tenantid=tenantid
+            )
+        elif family == AF_INET6:
+            srv6_sdn_controller_state.release_ipv6_net(
+                deviceid=deviceid, tenantid=tenantid
+            )
+        else:
+            logging.error(
+                'Invalid family address for address %s', mgmtip
+            )
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Success
         return status_codes_pb2.STATUS_SUCCESS
 
