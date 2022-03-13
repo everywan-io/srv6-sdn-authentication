@@ -29,7 +29,7 @@ NO_SUCH_FILE_OR_DIRECTORY = 2
 # Destination port used by VXLAN interfaces
 VXLAN_DSTPORT = 4789
 # Enable UDP checksum on VXLAN packets
-ENABLE_UDP_CSUM = False
+ENABLE_UDP_CSUM = True
 # VNI used for the management VTEPs
 MGMT_VNI = 0
 
