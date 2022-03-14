@@ -22,6 +22,12 @@ from pymerang import etherws_utils
 from pymerang import pymerang_pb2
 from pymerang import pymerang_pb2_grpc
 
+# Device states
+DEVICE_STATE_REBOOT_REQUIRED = (
+    pymerang_pb2.DeviceState.DEVICE_STATE_REBOOT_REQUIRED
+)
+DEVICE_STATE_FAILURE = pymerang_pb2.DeviceState.DEVICE_STATE_FAILURE
+
 # NAT types
 NAT_TYPES = [
     pynat.BLOCKED,
@@ -158,8 +164,12 @@ def send_keep_alive_udp(dst_ip, dst_port):
 # Start sending keep alive messages using ICMP protocol
 def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
                           stop_event=None, callback=None):
-    logging.info('Start sending ICMP keep alive messages to %s\n'
-                 'Interval set to %s seconds' % (dst_ip, interval))
+    logging.info(
+        'Start sending ICMP keep alive messages to %s\n'
+        'Interval set to %s seconds',
+        dst_ip,
+        interval
+    )
     current_lost = 0
     while True:
         # Returns delay in seconds.
@@ -168,8 +178,9 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
         if max_lost > 0:
             if delay is None:
                 current_lost += 1
-                logging.warning('Lost keep alive message (count %s)' %
-                                current_lost)
+                logging.warning(
+                    'Lost keep alive message (count %s)', current_lost
+                )
                 if max_lost > 0 and current_lost >= max_lost:
                     # Too many lost keep alive messages
                     if callback is not None:
@@ -194,13 +205,19 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
 
 # Start sending keep alive messages using UDP protocol
 def start_keep_alive_udp(dst_ip, dst_port, interval=30):
-    logging.info('Start sending UDP keep alive messages to %s port %s\n'
-                 'Interval set to %s seconds' % (dst_ip, dst_port, interval))
+    logging.info(
+        'Start sending UDP keep alive messages to %s port %s\n'
+        'Interval set to %s seconds',
+        dst_ip,
+        dst_port,
+        interval
+    )
     while True:
         # Send the keep alive message to the destination
         send_keep_alive_udp(dst_ip, dst_port)
         # Wait for X seconds before sending the next keep alive
         time.sleep(interval)
+
 
 # Build a grpc stub
 def get_grpc_session(ip_address, port, secure=False, certificate=None):
@@ -219,19 +236,30 @@ def get_grpc_session(ip_address, port, secure=False, certificate=None):
             certificate = f.read()
         # Then create the SSL credentials and establish the channel
         grpc_client_credentials = grpc.ssl_channel_credentials(certificate)
-        channel = grpc.secure_channel(server_address,
-                                        grpc_client_credentials)
+        channel = grpc.secure_channel(server_address, grpc_client_credentials)
     else:
         channel = grpc.insecure_channel(server_address)
     return channel
 
 
 # Start sending keep alive messages using the gRPC channel
-def start_keep_alive_grpc(dst_ip, interval=10, max_lost=0,
-                          stop_event=None, callback=None,
-                          server_ip=None, server_port=None, grpc_request=None, can_reboot=False):
-    logging.info('Start sending gRPC keep alive messages to %s\n'
-                 'Interval set to %s seconds' % (server_ip, interval))
+def start_keep_alive_grpc(
+    dst_ip,
+    interval=10,
+    max_lost=0,
+    stop_event=None,
+    callback=None,
+    server_ip=None,
+    server_port=None,
+    grpc_request=None,
+    can_reboot=False
+):
+    logging.info(
+        'Start sending gRPC keep alive messages to %s\n'
+        'Interval set to %s seconds',
+        server_ip,
+        interval
+    )
     if server_ip is None or server_port is None:
         logging.error('Missing required parameters server_ip/server_port')
         return
@@ -254,8 +282,10 @@ def start_keep_alive_grpc(dst_ip, interval=10, max_lost=0,
             try:
                 response = grpc_stub.KeepAlive(grpc_request)
                 current_lost = 0
-            except grpc.RpcError as e:
-                logging.error('Controller did not reply to the keep alive gRPC')
+            except grpc.RpcError:  # as e:
+                logging.error(
+                    'Controller did not reply to the keep alive gRPC'
+                )
                 current_lost += 1
                 if max_lost > 0 and current_lost >= max_lost:
                     if callback is not None:
@@ -263,19 +293,26 @@ def start_keep_alive_grpc(dst_ip, interval=10, max_lost=0,
                         return callback()
                     return
             # Check the device state
-            if response.device_state == pymerang_pb2.DeviceState.DEVICE_STATE_REBOOT_REQUIRED:
+            if response.device_state == DEVICE_STATE_REBOOT_REQUIRED:
                 logging.info('The EveryEdge device needs to be restarted')
                 if can_reboot:
                     logging.info('Scheduling a restart in %s seconds', 30)
                     os.system('( sleep 30 ; reboot ) &')
                     exit(0)
                 else:
-                    logging.info('Automatic reboot is disabled. Please reboot manually')
+                    logging.info(
+                        'Automatic reboot is disabled. Please reboot manually'
+                    )
                 logging.info('Terminating EveryEdge.')
                 stop_event.set()
-            elif response.device_state == pymerang_pb2.DeviceState.DEVICE_STATE_FAILURE:
-                logging.fatal('The controller detected too many failures on the device')
-                logging.fatal('Please remove the device from the EveryWAN GUI and restart the EveryEdge')
+            elif response.device_state == DEVICE_STATE_FAILURE:
+                logging.fatal(
+                    'The controller detected too many failures on the device'
+                )
+                logging.fatal(
+                    'Please remove the device from the EveryWAN GUI and '
+                    'restart the EveryEdge'
+                )
                 logging.info('Terminating EveryEdge.')
                 stop_event.set()
             # Wait for X seconds before sending the next keep alive
@@ -404,9 +441,11 @@ class TunnelState:
         for nat_type in tunnel_mode.supported_nat_types:
             if self.nat_to_tunnel_modes[nat_type].get(priority) is not None:
                 tunnel_mode_bis = self.nat_to_tunnel_modes[nat_type][priority]
-                logging.CRITICAL('Error: conflicting priorities for %s and %s'
-                                 % (tunnel_mode.name,
-                                    tunnel_mode_bis.name))
+                logging.critical(
+                    'Error: conflicting priorities for %s and %s',
+                    tunnel_mode.name,
+                    tunnel_mode_bis.name
+                )
             # Associate the tunnel mode to the NAT type
             self.nat_to_tunnel_modes[nat_type][priority] = tunnel_mode
         # Save the tunnel mode

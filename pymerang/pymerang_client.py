@@ -17,6 +17,7 @@ from ipaddress import IPv4Address, IPv6Address, IPv4Interface, IPv6Interface
 # pymerang dependencies
 from pymerang import utils
 from pymerang import pymerang_pb2
+from pymerang.pymerang_pb2 import SRTransparency
 from pymerang import pymerang_pb2_grpc
 from pymerang import status_codes_pb2
 # pyroute2 dependencies
@@ -57,20 +58,32 @@ GRPC_RETRY_INTERVAL = 10
 
 class PymerangDevice:
 
-    def __init__(self, server_ip, server_port, nat_discovery_server_ip,
-                 nat_discovery_server_port, nat_discovery_client_ip,
-                 nat_discovery_client_port, config_file, token_file,
-                 keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
-                 max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
-                 secure=DEFAULT_SECURE, certificate=DEFAULT_CERTIFICATE,
-                 sid_prefix=None, public_prefix_length=None,
-                 enable_proxy_ndp=True,
-                 force_ip6tnl=False,
-                 force_srh=False,
-                 incoming_sr_transparency=None,
-                 outgoing_sr_transparency=None,
-                 allow_reboot=False,
-                 stop_event=None, reboot_required=None, debug=False):
+    def __init__(
+        self,
+        server_ip,
+        server_port,
+        nat_discovery_server_ip,
+        nat_discovery_server_port,
+        nat_discovery_client_ip,
+        nat_discovery_client_port,
+        config_file,
+        token_file,
+        keep_alive_interval=DEFAULT_KEEP_ALIVE_INTERVAL,
+        max_keep_alive_lost=DEFAULT_MAX_KEEP_ALIVE_LOST,
+        secure=DEFAULT_SECURE,
+        certificate=DEFAULT_CERTIFICATE,
+        sid_prefix=None,
+        public_prefix_length=None,
+        enable_proxy_ndp=True,
+        force_ip6tnl=False,
+        force_srh=False,
+        incoming_sr_transparency=None,
+        outgoing_sr_transparency=None,
+        allow_reboot=False,
+        stop_event=None,
+        reboot_required=None,
+        debug=False
+    ):
         # Debug mode
         self.debug = debug
         # IP address of the gRPC server
@@ -101,7 +114,9 @@ class PymerangDevice:
         # If device ID is not set in the configuration, we read it from the
         # machine UUID
         if self.deviceid == '':
-            with open('/sys/devices/virtual/dmi/id/product_uuid', 'r') as uuid_file:
+            with open(
+                '/sys/devices/virtual/dmi/id/product_uuid', 'r'
+            ) as uuid_file:
                 self.deviceid = uuid_file.read().rstrip('\n')
         # Save the list of the supported features
         self.features = config.get('features', [])
@@ -141,8 +156,10 @@ class PymerangDevice:
         self.secure = secure
         if secure is True:
             if certificate is None:
-                logging.error('Error: "certificate" variable cannot be None '
-                              'in secure mode')
+                logging.error(
+                    'Error: "certificate" variable cannot be None '
+                    'in secure mode'
+                )
                 sys.exit(-2)
             self.certificate = certificate
         # Interfaces on the device
@@ -170,7 +187,7 @@ class PymerangDevice:
         elif utils.getAddressFamily(ip_address) == AF_INET:
             server_address = '%s:%s' % (ip_address, port)
         else:
-            logging.critical('Invalid address %s' % self.server_ip)
+            logging.critical('Invalid address %s', self.server_ip)
             return
         # If secure we need to establish a channel with the secure endpoint
         if self.secure:
@@ -179,21 +196,24 @@ class PymerangDevice:
                 certificate = f.read()
             # Then create the SSL credentials and establish the channel
             grpc_client_credentials = grpc.ssl_channel_credentials(certificate)
-            channel = grpc.secure_channel(server_address,
-                                          grpc_client_credentials)
+            channel = grpc.secure_channel(
+                server_address, grpc_client_credentials
+            )
         else:
             channel = grpc.insecure_channel(server_address)
         return channel
 
     def run_nat_discovery(self):
         # Run the stun test to discover the NAT type
-        logging.info('Running STUN test to discover the NAT type\n'
-                     'STUN client IP: %s\nSTUN client PORT: %s\n'
-                     'STUN server IP: %s\nSTUN server port: %s\n'
-                     % (self.nat_discovery_client_ip,
-                        self.nat_discovery_client_port,
-                        self.nat_discovery_server_ip,
-                        self.nat_discovery_server_port))
+        logging.info(
+            'Running STUN test to discover the NAT type\n'
+            'STUN client IP: %s\nSTUN client PORT: %s\n'
+            'STUN server IP: %s\nSTUN server port: %s\n',
+            self.nat_discovery_client_ip,
+            self.nat_discovery_client_port,
+            self.nat_discovery_server_ip,
+            self.nat_discovery_server_port
+        )
         nat_type, external_ip, external_port = pynat.get_ip_info(
             self.nat_discovery_client_ip,
             self.nat_discovery_client_port,
@@ -202,7 +222,7 @@ class PymerangDevice:
         )
         if nat_type is None:
             logging.error('Error in STUN client')
-        logging.info('NAT detected: %s' % nat_type)
+        logging.info('NAT detected: %s', nat_type)
         # Save the NAT type
         self.nat_type = nat_type
         # Save the external IP address
@@ -214,7 +234,7 @@ class PymerangDevice:
         if tunnel_mode is None:
             logging.error('No tunnel mode supporting the NAT type')
             return
-        logging.info('Tunnel mode selected: %s' % tunnel_mode.name)
+        logging.info('Tunnel mode selected: %s', tunnel_mode.name)
         # Set the interfaces
         interfaces = utils.get_local_interfaces()
         for ifname, ifinfo in interfaces.items():
@@ -229,71 +249,78 @@ class PymerangDevice:
                     addr = addr.split('/')[0]
                     if not IPv4Address(addr).is_link_local:
                         try:
-                            nat_type, external_ip, external_port = \
+                            nat_type, external_ip, external_port = (
                                 pynat.get_ip_info(
                                     addr.split('/')[0],
                                     self.nat_discovery_client_port,
                                     self.nat_discovery_server_ip,
                                     self.nat_discovery_server_port
                                 )
+                            )
                             if external_ip is not None:
-                                ext_ipv4_addrs.append(
-                                    external_ip)
+                                ext_ipv4_addrs.append(external_ip)
                         except OSError as e:
-                            logging.warning('Error running STUN test with the '
-                                            'following parameters\n'
-                                            'STUN client IP: %s\n'
-                                            'STUN client PORT: %s\n'
-                                            'STUN server IP: %s\n'
-                                            'STUN server port: %s\n'
-                                            'Error: %s\n\n'
-                                            % (addr.split('/')[0],
-                                                self.nat_discovery_client_port,
-                                                self.nat_discovery_server_ip,
-                                                self.nat_discovery_server_port,
-                                                e))
+                            logging.warning(
+                                'Error running STUN test with the '
+                                'following parameters\n'
+                                'STUN client IP: %s\n'
+                                'STUN client PORT: %s\n'
+                                'STUN server IP: %s\n'
+                                'STUN server port: %s\n'
+                                'Error: %s\n\n',
+                                addr.split('/')[0],
+                                self.nat_discovery_client_port,
+                                self.nat_discovery_server_ip,
+                                self.nat_discovery_server_port,
+                                e
+                            )
                 for addr in ifinfo['ipv6_addrs']:
                     # Run the stun test to discover the
                     # external IP and port of the interface
                     addr = addr.split('/')[0]
                     if not IPv6Address(addr).is_link_local:
                         try:
-                            nat_type, external_ip, external_port = \
+                            nat_type, external_ip, external_port = (
                                 pynat.get_ip_info(
                                     addr.split('/')[0],
                                     self.nat_discovery_client_port,
                                     self.nat_discovery_server_ip,
                                     self.nat_discovery_server_port
                                 )
+                            )
                             if external_ip is not None:
-                                ext_ipv6_addrs.append(
-                                    external_ip)
+                                ext_ipv6_addrs.append(external_ip)
                         except OSError as e:
-                            logging.warning('Error running STUN test with the '
-                                            'following parameters\n'
-                                            'STUN client IP: %s\n'
-                                            'STUN client PORT: %s\n'
-                                            'STUN server IP: %s\n'
-                                            'STUN server port: %s\n'
-                                            'Error: %s\n\n'
-                                            % (addr.split('/')[0],
-                                                self.nat_discovery_client_port,
-                                                self.nat_discovery_server_ip,
-                                                self.nat_discovery_server_port,
-                                                e))
+                            logging.warning(
+                                'Error running STUN test with the '
+                                'following parameters\n'
+                                'STUN client IP: %s\n'
+                                'STUN client PORT: %s\n'
+                                'STUN server IP: %s\n'
+                                'STUN server port: %s\n'
+                                'Error: %s\n\n',
+                                addr.split('/')[0],
+                                self.nat_discovery_client_port,
+                                self.nat_discovery_server_ip,
+                                self.nat_discovery_server_port,
+                                e
+                            )
             # Append the interface
-            self.interfaces.append({
-                'name': ifname,
-                'ext_ipv4_addrs': ext_ipv4_addrs,
-                'ext_ipv6_addrs': ext_ipv6_addrs
-            })
+            self.interfaces.append(
+                {
+                    'name': ifname,
+                    'ext_ipv4_addrs': ext_ipv4_addrs,
+                    'ext_ipv6_addrs': ext_ipv6_addrs
+                }
+            )
         # Set the tunnel mode
         self.tunnel_mode = tunnel_mode
 
     def _register_device(self):
         # Establish a gRPC connection to the controller
-        with self.get_grpc_session(self.server_ip,
-                                   self.server_port) as channel:
+        with self.get_grpc_session(
+            self.server_ip, self.server_port
+        ) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Start registration procedure
@@ -322,19 +349,19 @@ class PymerangDevice:
             # Incoming Segment Routing transparency [ t0 | t1 | op ]
             if self.incoming_sr_transparency is not None:
                 if self.incoming_sr_transparency == 't0':
-                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.T0
+                    request.incoming_sr_transparency = SRTransparency.T0
                 elif self.incoming_sr_transparency == 't1':
-                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.T1
+                    request.incoming_sr_transparency = SRTransparency.T1
                 elif self.incoming_sr_transparency == 'op':
-                    request.incoming_sr_transparency = pymerang_pb2.SRTransparency.OP
+                    request.incoming_sr_transparency = SRTransparency.OP
             # Outgoing Segment Routing transparency [ t0 | t1 | op ]
             if self.outgoing_sr_transparency is not None:
                 if self.outgoing_sr_transparency == 't0':
-                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.T0
+                    request.outgoing_sr_transparency = SRTransparency.T0
                 elif self.outgoing_sr_transparency == 't1':
-                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.T1
+                    request.outgoing_sr_transparency = SRTransparency.T1
                 elif self.outgoing_sr_transparency == 'op':
-                    request.outgoing_sr_transparency = pymerang_pb2.SRTransparency.OP
+                    request.outgoing_sr_transparency = SRTransparency.OP
             # Set the features list
             for feature in self.features:
                 f = request.device.features.add()
@@ -367,8 +394,9 @@ class PymerangDevice:
                     if response.mgmt_info.vxlan_port is not None:
                         # We use the port set by the tenant for VXLAN port
                         # forwarding
-                        self.nat_discovery_client_port = \
+                        self.nat_discovery_client_port = (
                             response.mgmt_info.vxlan_port
+                        )
                     else:
                         # If no port has been configured for port forwarding,
                         # we use the default port of VXLAN, i.e. 4789
@@ -384,13 +412,14 @@ class PymerangDevice:
                 return status_codes_pb2.STATUS_UNAUTHORIZED
             else:
                 # Unknown status code
-                logging.warning('Unknown status code: %s' % response.status)
+                logging.warning('Unknown status code: %s', response.status)
                 return response.status
 
     def _update_mgmt_info(self):
         # Establish a gRPC connection to the controller
-        with self.get_grpc_session(self.server_ip,
-                                   self.server_port) as channel:
+        with self.get_grpc_session(
+            self.server_ip, self.server_port
+        ) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Prepare the registration message
@@ -422,8 +451,11 @@ class PymerangDevice:
                 # Management interface already configured
                 # We need to destroy it before creating a new one
                 res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-                    self.deviceid, self.tenantid,
-                    self.controller_vtep_ip, self.controller_vtep_mac)
+                    self.deviceid,
+                    self.tenantid,
+                    self.controller_vtep_ip,
+                    self.controller_vtep_mac
+                )
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     logging.error('Cannot destroy the management interface')
                     return res
@@ -440,12 +472,13 @@ class PymerangDevice:
             # Create the tunnel
             if not self.tunnel_device_endpoint_configured:
                 logging.info('Creating the tunnel for the device')
-                res, self.device_vtep_mac = \
+                res, self.device_vtep_mac = (
                     self.tunnel_mode.create_tunnel_device_endpoint(
                         deviceid=self.deviceid,
                         tenantid=self.tenantid,
                         vxlan_port=self.vxlan_port,
                     )
+                )
                 if res != status_codes_pb2.STATUS_SUCCESS:
                     logging.error('Cannot create the management interface')
                     return res
@@ -464,15 +497,17 @@ class PymerangDevice:
                 # Extract mask of the VTEP
                 vtep_mask = response.mgmt_info.vtep_mask
                 # Extract MAC address of the controller's VTEP
-                self.controller_vtep_mac = (response.mgmt_info
-                                            .controller_vtep_mac)
+                self.controller_vtep_mac = (
+                    response.mgmt_info.controller_vtep_mac
+                )
                 # Create the tunnel
                 logging.info('Finalizing tunnel configuration')
                 res = self.tunnel_mode.create_tunnel_device_endpoint_end(
                     deviceid=self.deviceid,
                     tenantid=self.tenantid,
                     controller_vtep_ip=self.controller_vtep_ip,
-                    device_vtep_ip=device_vtep_ip, vtep_mask=vtep_mask,
+                    device_vtep_ip=device_vtep_ip,
+                    vtep_mask=vtep_mask,
                     controller_vtep_mac=self.controller_vtep_mac
                 )
                 if res != status_codes_pb2.STATUS_SUCCESS:
@@ -480,8 +515,9 @@ class PymerangDevice:
                     return res
                 self.tunnel_device_endpoint_end_configured = True
                 # Get the controller address
-                self.controller_mgmtip = \
+                self.controller_mgmtip = (
                     self.tunnel_mode.get_controller_mgmtip()
+                )
                 if self.controller_mgmtip is None:
                     # If the tunnel mode does not specifies any mgmt IP
                     # for the controller we use the public IP address
@@ -489,30 +525,34 @@ class PymerangDevice:
                 # Send a keep-alive messages to keep the tunnel opened,
                 # if required
                 if self.tunnel_mode.require_keep_alive_messages:
-                    Thread(target=utils.start_keep_alive_icmp,
-                           args=(self.controller_mgmtip,
-                                 self.keep_alive_interval,
-                                 self.max_keep_alive_lost,
-                                 self.stop_event,
-                                 self.update_mgmt_info
-                                 ),
-                           daemon=False
-                           ).start()
+                    Thread(
+                        target=utils.start_keep_alive_icmp,
+                        args=(
+                            self.controller_mgmtip,
+                            self.keep_alive_interval,
+                            self.max_keep_alive_lost,
+                            self.stop_event,
+                            self.update_mgmt_info
+                        ),
+                        daemon=False
+                    ).start()
                 # Send keep-alive messages on the gRPC channel to check the
                 # device state
-                Thread(target=utils.start_keep_alive_grpc,
-                        args=(self.controller_mgmtip,
-                                self.keep_alive_interval,
-                                self.max_keep_alive_lost,
-                                self.stop_event,
-                                self.update_mgmt_info,
-                                self.server_ip,
-                                self.server_port,
-                                request,
-                                self.allow_reboot
-                                ),
-                        daemon=False
-                        ).start()
+                Thread(
+                    target=utils.start_keep_alive_grpc,
+                    args=(
+                        self.controller_mgmtip,
+                        self.keep_alive_interval,
+                        self.max_keep_alive_lost,
+                        self.stop_event,
+                        self.update_mgmt_info,
+                        self.server_ip,
+                        self.server_port,
+                        request,
+                        self.allow_reboot
+                    ),
+                    daemon=False
+                ).start()
                 # Return the configuration
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
@@ -526,8 +566,9 @@ class PymerangDevice:
 
     def _exec_reconciliation(self):
         # Establish a gRPC connection to the controller
-        with self.get_grpc_session(self.server_ip,
-                                   self.server_port) as channel:
+        with self.get_grpc_session(
+            self.server_ip, self.server_port
+        ) as channel:
             # Get the stub
             stub = pymerang_pb2_grpc.PymerangStub(channel)
             # Start registration procedure
@@ -560,14 +601,20 @@ class PymerangDevice:
                 if grpc.StatusCode.UNAVAILABLE == status_code:
                     # If the controller is not reachable,
                     # retry after X seconds
-                    logging.error('Unable to contact controller '
-                                  '(unreachable gRPC server): %s\n\n'
-                                  'Retrying in %s seconds'
-                                  % (details, GRPC_RETRY_INTERVAL))
+                    logging.error(
+                        'Unable to contact controller '
+                        '(unreachable gRPC server): %s\n\n'
+                        'Retrying in %s seconds',
+                        details, GRPC_RETRY_INTERVAL
+                    )
                     time.sleep(GRPC_RETRY_INTERVAL)
                 else:
-                    logging.error('Error in update_mgmt_info: '
-                                  '%s - %s' % (status_code, details))
+                    logging.error(
+                        'Error in update_mgmt_info: '
+                        '%s - %s',
+                        status_code,
+                        details
+                    )
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
 
     def register_device(self):
@@ -581,14 +628,21 @@ class PymerangDevice:
                 if grpc.StatusCode.UNAVAILABLE == status_code:
                     # If the controller is not reachable,
                     # retry after X seconds
-                    logging.error('Unable to contact controller '
-                                  '(unreachable gRPC server): %s\n\n'
-                                  'Retrying in %s seconds'
-                                  % (details, GRPC_RETRY_INTERVAL))
+                    logging.error(
+                        'Unable to contact controller '
+                        '(unreachable gRPC server): %s\n\n'
+                        'Retrying in %s seconds',
+                        details,
+                        GRPC_RETRY_INTERVAL
+                    )
                     time.sleep(GRPC_RETRY_INTERVAL)
                 else:
-                    logging.error('Error in update_mgmt_info: '
-                                  '%s - %s' % (status_code, details))
+                    logging.error(
+                        'Error in update_mgmt_info: '
+                        '%s - %s',
+                        status_code,
+                        details
+                    )
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
         logging.info('Stop flag is set. Stopping registration routine.')
 
@@ -596,8 +650,10 @@ class PymerangDevice:
         # Wait until a termination signal is received
         self.stop_event.wait()
         # Received termination signal
-        logging.info('Received shutdown command. '
-                     'Destroying management interface in 5 seconds')
+        logging.info(
+            'Received shutdown command. '
+            'Destroying management interface in 5 seconds'
+        )
         time.sleep(5)
         if self.tunnel_mode is None:
             logging.info('No tunnel management. Nothing to do.')
@@ -605,25 +661,44 @@ class PymerangDevice:
             # Remove the management interface
             try:
                 res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
-                    self.deviceid, self.tenantid,
-                    self.controller_vtep_ip, self.controller_vtep_mac)
+                    self.deviceid,
+                    self.tenantid,
+                    self.controller_vtep_ip,
+                    self.controller_vtep_mac
+                )
                 if res != status_codes_pb2.STATUS_SUCCESS:
-                    logging.error('Error during '
-                                'destroy_tunnel_device_endpoint_end')
+                    logging.error(
+                        'Error during '
+                        'destroy_tunnel_device_endpoint_end'
+                    )
                     return res
             except NetlinkError as e:
                 if e.code == 2:  # NO_SUCH_FILE_OR_DIRECTORY
-                    logging.warning('An error occurred in destroy_tunnel_device_endpoint_end: %s' % e)
-                    logging.warning('Ignoring it and trying to perform shutdown')
+                    logging.warning(
+                        'An error occurred in '
+                        'destroy_tunnel_device_endpoint_end: %s',
+                        e
+                    )
+                    logging.warning(
+                        'Ignoring it and trying to perform '
+                        'shutdown'
+                    )
                 else:
-                    logging.error('Error in destroy_tunnel_device_endpoint_end: %s' % e)
+                    logging.error(
+                        'Error in '
+                        'destroy_tunnel_device_endpoint_end: %s',
+                        e
+                    )
                     raise e
             self.tunnel_device_endpoint_end_configured = False
             res = self.tunnel_mode.destroy_tunnel_device_endpoint(
-                self.deviceid, self.tenantid)
+                self.deviceid,
+                self.tenantid
+            )
             if res != status_codes_pb2.STATUS_SUCCESS:
-                logging.error('Error during '
-                            'destroy_tunnel_device_endpoint_end')
+                logging.error(
+                    'Error during destroy_tunnel_device_endpoint_end'
+                )
                 return res
             self.tunnel_device_endpoint_configured = False
             logging.info('Management interface destroyed')
@@ -645,16 +720,24 @@ class PymerangDevice:
                 if grpc.StatusCode.UNAVAILABLE == status_code:
                     # If the controller is not reachable,
                     # retry after X seconds
-                    logging.error('Unable to contact controller '
-                                  '(unreachable gRPC server): %s\n\n'
-                                  'Retrying in %s seconds'
-                                  % (details, GRPC_RETRY_INTERVAL))
+                    logging.error(
+                        'Unable to contact controller '
+                        '(unreachable gRPC server): %s\n\n'
+                        'Retrying in %s seconds',
+                        details, GRPC_RETRY_INTERVAL
+                    )
                     time.sleep(GRPC_RETRY_INTERVAL)
                 else:
-                    logging.error('Error in start_reconciliation: '
-                                  '%s - %s' % (status_code, details))
+                    logging.error(
+                        'Error in start_reconciliation: %s - %s',
+                        status_code,
+                        details
+                    )
                     return status_codes_pb2.STATUS_INTERNAL_ERROR
-        logging.info('Stop flag is set. Stopping start_reconciliation routine.')
+        logging.info(
+            'Stop flag is set. Stopping start_reconciliation '
+            'routine.'
+        )
 
     def run(self):
         logging.info('Client started')
@@ -667,13 +750,11 @@ class PymerangDevice:
         # Start NAT discovery procedure
         self.run_nat_discovery()
         # Update tunnel mode
-        if self.update_mgmt_info() != \
-                status_codes_pb2.STATUS_SUCCESS:
+        if self.update_mgmt_info() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in update tunnel mode')
             return status_codes_pb2.STATUS_INTERNAL_ERROR
         # Execute reconciliation, if required
-        if self.exec_reconciliation() != \
-                status_codes_pb2.STATUS_SUCCESS:
+        if self.exec_reconciliation() != status_codes_pb2.STATUS_SUCCESS:
             logging.warning('Error in reconciliation')
             return status_codes_pb2.STATUS_INTERNAL_ERROR
 
@@ -694,65 +775,94 @@ def parse_arguments():
     )
     # IP address of the gRPC server
     parser.add_argument(
-        '-i', '--server-ip', dest='server_ip',
-        default=DEFAULT_PYMERANG_SERVER_IP, help='Server IP address'
+        '-i',
+        '--server-ip',
+        dest='server_ip',
+        default=DEFAULT_PYMERANG_SERVER_IP,
+        help='Server IP address'
     )
     # Port of the gRPC server
     parser.add_argument(
-        '-p', '--server-port', dest='server_port',
-        default=DEFAULT_PYMERANG_SERVER_PORT, help='Server port'
+        '-p',
+        '--server-port',
+        dest='server_port',
+        default=DEFAULT_PYMERANG_SERVER_PORT,
+        help='Server port'
     )
     # IP address of the NAT discovery server
     parser.add_argument(
-        '-n', '--nat-discovery-server-ip', dest='nat_discovery_server_ip',
-        default=DEFAULT_NAT_DISCOVERY_SERVER_IP, help='NAT discovery server IP'
+        '-n',
+        '--nat-discovery-server-ip',
+        dest='nat_discovery_server_ip',
+        default=DEFAULT_NAT_DISCOVERY_SERVER_IP,
+        help='NAT discovery server IP'
     )
     # Port of the NAT discovery server
     parser.add_argument(
-        '-m', '--nat-discovery-server-port', type=int,
+        '-m',
+        '--nat-discovery-server-port',
+        type=int,
         dest='nat_discovery_server_port',
         default=DEFAULT_NAT_DISCOVERY_SERVER_PORT,
         help='NAT discovery server port'
     )
     # IP address used by the NAT discoery client
     parser.add_argument(
-        '-l', '--nat-discovery-client-ip', dest='nat_discovery_client_ip',
-        default=DEFAULT_NAT_DISCOVERY_CLIENT_IP, help='NAT discovery client IP'
+        '-l',
+        '--nat-discovery-client-ip',
+        dest='nat_discovery_client_ip',
+        default=DEFAULT_NAT_DISCOVERY_CLIENT_IP,
+        help='NAT discovery client IP'
     )
     # Port used by the NAT discovery client
     parser.add_argument(
-        '-o', '--nat-discovery-client-port', type=int,
+        '-o',
+        '--nat-discovery-client-port',
+        type=int,
         dest='nat_discovery_client_port',
         default=DEFAULT_NAT_DISCOVERY_CLIENT_PORT,
         help='NAT discovery client port'
     )
     # File containing the configuration of the device
     parser.add_argument(
-        '-f', '--config-file', dest='config_file',
-        default=DEFAULT_CONFIG_FILE, help='Config file'
+        '-f',
+        '--config-file',
+        dest='config_file',
+        default=DEFAULT_CONFIG_FILE,
+        help='Config file'
     )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
-        '-a', '--keep-alive-interval', dest='keep_alive_interval',
+        '-a',
+        '--keep-alive-interval',
+        dest='keep_alive_interval',
         default=DEFAULT_KEEP_ALIVE_INTERVAL,
         help='Interval between two consecutive keep alive'
     )
     # Max keep alive lost
     parser.add_argument(
-        '-x', '--max-keep-alive-lost', dest='max_keep_alive_lost',
+        '-x',
+        '--max-keep-alive-lost',
+        dest='max_keep_alive_lost',
         default=DEFAULT_MAX_KEEP_ALIVE_LOST,
         help='Max keep alive lost'
     )
     # Interval between two consecutive keep alive messages
     parser.add_argument(
-        '-t', '--token-file', dest='token_file',
+        '-t',
+        '--token-file',
+        dest='token_file',
         default=DEFAULT_TOKEN_FILE,
         help='File containing the token used for the authentication'
     )
     # Server certificate file
     parser.add_argument(
-        '-c', '--certificate', dest='certificate', action='store',
-        default=DEFAULT_CERTIFICATE, help='Server certificate file'
+        '-c',
+        '--certificate',
+        dest='certificate',
+        action='store',
+        default=DEFAULT_CERTIFICATE,
+        help='Server certificate file'
     )
     # Parse input parameters
     args = parser.parse_args()
@@ -810,5 +920,6 @@ if __name__ == '__main__':
         keep_alive_interval=keep_alive_interval,
         max_keep_alive_lost=max_keep_alive_lost,
         stop_event=None,
-        debug=debug)
+        debug=debug
+    )
     client.run()
