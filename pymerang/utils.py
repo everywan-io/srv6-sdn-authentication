@@ -4,6 +4,7 @@
 import errno
 import logging
 import pynat
+import subprocess
 from ipaddress import ip_address, IPv6Network, IPv4Network
 from ipaddress import IPv4Interface, IPv6Interface, AddressValueError
 from urllib.parse import urlparse
@@ -144,11 +145,29 @@ def get_local_interfaces():
 def send_ping(dst_ip):
     try:
         delay = ping(dst_ip)
+        if not delay:
+            # The remote endpoint did not replied to the ping
+            delay = None
     except OSError as err:
         if err.errno == errno.ENETUNREACH:
             # Error 101: Network is unreachable
             delay = None
     return delay
+
+
+# Send a ping to the dst and return the delay expressed in seconds
+# Return None if no response is received
+#
+# This function is an alternative to send_ping
+# send_ping leverages the python library ping3 but does not support
+# IPv6 destinations; as a workaround we define send_ping_raw which
+# is based on the command line "ping" tool
+def send_ping_raw(dst_ip):
+    process = subprocess.Popen(
+        f'ping -c 1 {dst_ip}', shell=True, stdout=subprocess.PIPE
+    )
+    process.wait()
+    return process.returncode == 0
 
 
 # Send a UDP message to the dst on the specified port
@@ -173,18 +192,25 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
     current_lost = 0
     while True:
         # Returns delay in seconds.
-        logging.debug('Send keep alive message')
-        delay = send_ping(dst_ip)
+        logging.debug('Send ICMP keep alive message')
+        # send_ping leverages python library ping3; ping3 does not
+        # support IPv6 currently; as workaround currently we use the
+        # command line tool "ping"
+        # delay = send_ping(dst_ip)
+        is_reachable = send_ping_raw(dst_ip)
         if max_lost > 0:
-            if delay is None:
+            # if delay is None:
+            if not is_reachable:
                 current_lost += 1
                 logging.warning(
-                    'Lost keep alive message (count %s)', current_lost
+                    'Lost ICMP keep alive message (count %s)', current_lost
                 )
                 if max_lost > 0 and current_lost >= max_lost:
                     # Too many lost keep alive messages
                     if callback is not None:
-                        logging.warning('Too many lost keep alive messages\n')
+                        logging.warning(
+                            'Too many lost ICMP keep alive messages\n'
+                        )
                         return callback()
                     return
             else:
@@ -197,7 +223,7 @@ def start_keep_alive_icmp(dst_ip, interval=10, max_lost=0,
                 # Shutdown device operation requested
                 # Stop sending keep alive messages
                 logging.info('Termination flag set')
-                logging.info('Stop sending keep alive messages')
+                logging.info('Stop sending ICMP keep alive messages')
                 return
         else:
             time.sleep(interval)
@@ -289,7 +315,9 @@ def start_keep_alive_grpc(
                 current_lost += 1
                 if max_lost > 0 and current_lost >= max_lost:
                     if callback is not None:
-                        logging.warning('Too many lost keep alive messages\n')
+                        logging.warning(
+                            'Too many lost gRPC keep alive messages\n'
+                        )
                         return callback()
                     return
             # Check the device state
@@ -323,7 +351,7 @@ def start_keep_alive_grpc(
                     # Shutdown device operation requested
                     # Stop sending keep alive messages
                     logging.info('Termination flag set')
-                    logging.info('Stop sending keep alive messages')
+                    logging.info('Stop sending gRPC keep alive messages')
                     return
             else:
                 time.sleep(interval)
