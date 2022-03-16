@@ -581,7 +581,7 @@ class PymerangDevice:
             request.tenantid = self.tenantid
             # Send the reconciliation request
             logging.info('Sending the reconciliation request')
-            response = stub.RegisterDevice(request)
+            response = stub.ExecReconciliation(request)
             if response.status == status_codes_pb2.STATUS_SUCCESS:
                 logging.info('Device reconciliation completed successfully')
                 return status_codes_pb2.STATUS_SUCCESS

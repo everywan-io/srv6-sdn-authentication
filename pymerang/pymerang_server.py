@@ -344,7 +344,7 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
             status=res,
             device_state=device.get(
                 'state',
-                device_state=device.get('state', DeviceState.UNKNOWN.value)
+                device.get('state', DeviceState.UNKNOWN.value)
             )
         )
         logging.debug('Sending the reply: %s', reply)
