@@ -169,6 +169,10 @@ class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
                 outgoing_sr_transparency
             )
         )
+        if response == STATUS_UNAUTHORIZED:
+            return (
+                pymerang_pb2.RegisterDeviceReply(status=STATUS_UNAUTHORIZED)
+            )
         if response != STATUS_SUCCESS:
             # Get the device
             device = srv6_sdn_controller_state.get_device(

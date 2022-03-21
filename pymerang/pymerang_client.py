@@ -408,7 +408,9 @@ class PymerangDevice:
                 return status_codes_pb2.STATUS_SUCCESS
             elif response.status == status_codes_pb2.STATUS_UNAUTHORIZED:
                 # Authentication failed
-                logging.warning('Authentication failed')
+                logging.error('Authentication failed. Please check the token.')
+                logging.error('Stopping EveryEdge.')
+                self.stop_event.set()
                 return status_codes_pb2.STATUS_UNAUTHORIZED
             else:
                 # Unknown status code
