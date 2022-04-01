@@ -373,7 +373,10 @@ class PymerangDevice:
             for ifname, ifinfo in interfaces.items():
                 interface = request.interfaces.add()
                 interface.name = ifname
-                interface.mac_addr = ifinfo['mac_addr']
+                if ifinfo.get('mac_addr') is None:
+                    interface.mac_addr = ''
+                else:
+                    interface.mac_addr = ifinfo['mac_addr']
                 interface.ipv6_addrs.extend(ifinfo['ipv6_addrs'])
                 interface.ipv4_addrs.extend(ifinfo['ipv4_addrs'])
                 for addr in ifinfo['ipv6_addrs']:
