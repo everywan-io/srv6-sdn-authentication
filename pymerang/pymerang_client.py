@@ -235,6 +235,8 @@ class PymerangDevice:
             logging.error('No tunnel mode supporting the NAT type')
             return
         logging.info('Tunnel mode selected: %s', tunnel_mode.name)
+        # Clear interfaces list
+        self.interfaces = list()
         # Set the interfaces
         interfaces = utils.get_local_interfaces()
         for ifname, ifinfo in interfaces.items():
