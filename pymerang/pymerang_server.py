@@ -662,7 +662,7 @@ class PymerangController:
                     mgmtip,
                     self.keep_alive_interval,
                     self.max_keep_alive_lost,
-                    None,
+                    stop_event,
                     lambda: self.device_disconnected(deviceid, tenantid)
                 ),
                 daemon=False
