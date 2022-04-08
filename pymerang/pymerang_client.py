@@ -437,6 +437,18 @@ class PymerangDevice:
                     logging.error('Cannot destroy the management interface')
                     return res
                 self.tunnel_device_endpoint_end_configured = False
+            if self.tunnel_device_endpoint_configured:
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+                    self.deviceid,
+                    self.tenantid
+                )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error(
+                        'Error during destroy_tunnel_device_endpoint_end'
+                    )
+                    return res
+                self.tunnel_device_endpoint_configured = False
+            logging.info('Management interface destroyed')
             logging.info('Starting NAT Discovery procedure')
             self.run_nat_discovery()
             logging.info('NAT Discovery procedure completed')
