@@ -423,10 +423,24 @@ class PymerangDevice:
     def handle_connection_lost(self):
         try:
             logging.warning('Connection lost to the controller')
+            # Destroy old management interfaces, before running NAT discovery
+            if self.tunnel_device_endpoint_end_configured:
+                # Management interface already configured
+                # We need to destroy it before running NAT discovery
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                    self.deviceid,
+                    self.tenantid,
+                    self.controller_vtep_ip,
+                    self.controller_vtep_mac
+                )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot destroy the management interface')
+                    return res
+                self.tunnel_device_endpoint_end_configured = False
             logging.info('Starting NAT Discovery procedure')
             self.run_nat_discovery()
             logging.info('NAT Discovery procedure completed')
-        except NetlinkError as err:
+        except OSError as err:
             logging.warning(f'NAT Discovery failed with reason "{str(err)}"')
             logging.warning(
                 'Ignoring failure and trying to establish a connection to '
