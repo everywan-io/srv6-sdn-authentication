@@ -420,6 +420,25 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s', response.status)
                 return response.status
 
+    def handle_connection_lost(self):
+        try:
+            logging.warning('Connection lost to the controller')
+            logging.info('Starting NAT Discovery procedure')
+            self.run_nat_discovery()
+            logging.info('NAT Discovery procedure completed')
+        except NetlinkError as err:
+            logging.warning(f'NAT Discovery failed with reason "{str(err)}"')
+            logging.warning(
+                'Ignoring failure and trying to establish a connection to '
+                'the controller'
+            )
+        # Update tunnel mode
+        logging.info('Trying to connecting to the controller')
+        if self.update_mgmt_info() != status_codes_pb2.STATUS_SUCCESS:
+            logging.error('Cannot establish a connection to the controller')
+            logging.error('Error in update tunnel mode')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
+
     def _update_mgmt_info(self):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(
@@ -537,7 +556,7 @@ class PymerangDevice:
                             self.keep_alive_interval,
                             self.max_keep_alive_lost,
                             self.stop_event,
-                            self.update_mgmt_info
+                            self.handle_connection_lost
                         ),
                         daemon=False
                     ).start()
@@ -550,7 +569,7 @@ class PymerangDevice:
                         self.keep_alive_interval,
                         self.max_keep_alive_lost,
                         self.stop_event,
-                        self.update_mgmt_info,
+                        self.handle_connection_lost,
                         self.server_ip,
                         self.server_port,
                         request,
