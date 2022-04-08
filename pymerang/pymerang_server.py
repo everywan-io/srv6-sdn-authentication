@@ -3,7 +3,7 @@
 # General imports
 from argparse import ArgumentParser
 from concurrent import futures
-from threading import Thread
+from threading import Thread, Event
 from socket import AF_INET, AF_INET6
 import logging
 import time
@@ -386,6 +386,8 @@ class PymerangController:
         self.certificate = certificate
         # Reference to the Northbound interface
         self.nb_interface_ref = nb_interface_ref
+        # Devices connected
+        self.connected_devices = dict()
 
     # Restore management interfaces, if any
     def restore_mgmt_interfaces(self):
@@ -640,6 +642,15 @@ class PymerangController:
             mgmtip = srv6_sdn_controller_state.get_device_mgmtip(
                 tenantid, deviceid
             ).split('/')[0]
+        # If a keep alive thread for the device is already running, we
+        # need to stop it before starting new keep keep alive thread
+        # to prevent race conditions
+        thread_id = f'{tenantid}/{deviceid}'
+        if self.connected_devices.get(thread_id) is not None:
+            self.connected_devices[thread_id].set()
+        # Create a new event, used to stop the Keep Alive procedure
+        stop_event = Event()
+        self.connected_devices[f'{tenantid}/{deviceid}'] = stop_event
         # Send a keep-alive messages to keep the tunnel opened,
         # if required for the tunnel mode
         # After N keep alive messages lost, we assume that the device
@@ -657,7 +668,7 @@ class PymerangController:
                 daemon=False
             ).start()
         # Update controller state
-        srv6_sdn_controller_state.update_mgmt_info(
+        success = srv6_sdn_controller_state.update_mgmt_info(
             deviceid,
             tenantid,
             mgmtip,
@@ -669,6 +680,13 @@ class PymerangController:
             device_vtep_mac,
             vxlan_port
         )
+        if success is None or success is False:
+            err = (
+                'Cannot update tunnel management info. '
+                'Error while updating the controller state'
+            )
+            logging.error(err)
+            return STATUS_INTERNAL_ERROR, None, None, None, None
         # Mark the device as "connected"
         success = srv6_sdn_controller_state.set_device_connected_flag(
             deviceid=deviceid, tenantid=tenantid, connected=True
@@ -776,6 +794,9 @@ class PymerangController:
             srv6_sdn_controller_state.set_tunnel_mode(deviceid, tenantid, None)
         # Clear management information on the database
         srv6_sdn_controller_state.clear_mgmt_info(deviceid, tenantid)
+        # Remove keep alive stop event
+        thread_id = f'{tenantid}/{deviceid}'
+        del self.connected_devices[thread_id]
         # Success
         logging.debug('Device disconnected: %s' % deviceid)
         return STATUS_SUCCESS
