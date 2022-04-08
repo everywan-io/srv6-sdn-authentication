@@ -235,6 +235,8 @@ class PymerangDevice:
             logging.error('No tunnel mode supporting the NAT type')
             return
         logging.info('Tunnel mode selected: %s', tunnel_mode.name)
+        # Clear interfaces list
+        self.interfaces = list()
         # Set the interfaces
         interfaces = utils.get_local_interfaces()
         for ifname, ifinfo in interfaces.items():
@@ -420,6 +422,51 @@ class PymerangDevice:
                 logging.warning('Unknown status code: %s', response.status)
                 return response.status
 
+    def handle_connection_lost(self):
+        try:
+            logging.warning('Connection lost to the controller')
+            # Destroy old management interfaces, before running NAT discovery
+            if self.tunnel_device_endpoint_end_configured:
+                # Management interface already configured
+                # We need to destroy it before running NAT discovery
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint_end(
+                    self.deviceid,
+                    self.tenantid,
+                    self.controller_vtep_ip,
+                    self.controller_vtep_mac
+                )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error('Cannot destroy the management interface')
+                    return res
+                self.tunnel_device_endpoint_end_configured = False
+            if self.tunnel_device_endpoint_configured:
+                res = self.tunnel_mode.destroy_tunnel_device_endpoint(
+                    self.deviceid,
+                    self.tenantid
+                )
+                if res != status_codes_pb2.STATUS_SUCCESS:
+                    logging.error(
+                        'Error during destroy_tunnel_device_endpoint_end'
+                    )
+                    return res
+                self.tunnel_device_endpoint_configured = False
+            logging.info('Management interface destroyed')
+            logging.info('Starting NAT Discovery procedure')
+            self.run_nat_discovery()
+            logging.info('NAT Discovery procedure completed')
+        except OSError as err:
+            logging.warning(f'NAT Discovery failed with reason "{str(err)}"')
+            logging.warning(
+                'Ignoring failure and trying to establish a connection to '
+                'the controller'
+            )
+        # Update tunnel mode
+        logging.info('Trying to connect to the controller')
+        if self.update_mgmt_info() != status_codes_pb2.STATUS_SUCCESS:
+            logging.error('Cannot establish a connection to the controller')
+            logging.error('Error in update tunnel mode')
+            return status_codes_pb2.STATUS_INTERNAL_ERROR
+
     def _update_mgmt_info(self):
         # Establish a gRPC connection to the controller
         with self.get_grpc_session(
@@ -537,7 +584,7 @@ class PymerangDevice:
                             self.keep_alive_interval,
                             self.max_keep_alive_lost,
                             self.stop_event,
-                            self.update_mgmt_info
+                            self.handle_connection_lost
                         ),
                         daemon=False
                     ).start()
@@ -550,7 +597,7 @@ class PymerangDevice:
                         self.keep_alive_interval,
                         self.max_keep_alive_lost,
                         self.stop_event,
-                        self.update_mgmt_info,
+                        self.handle_connection_lost,
                         self.server_ip,
                         self.server_port,
                         request,
