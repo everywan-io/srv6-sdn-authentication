@@ -461,7 +461,7 @@ class PymerangDevice:
                 'the controller'
             )
         # Update tunnel mode
-        logging.info('Trying to connecting to the controller')
+        logging.info('Trying to connect to the controller')
         if self.update_mgmt_info() != status_codes_pb2.STATUS_SUCCESS:
             logging.error('Cannot establish a connection to the controller')
             logging.error('Error in update tunnel mode')
