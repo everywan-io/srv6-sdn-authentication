@@ -25,10 +25,10 @@ DEFAULT_PYMERANG_SERVER_IP = '::'
 # Port of the gRPC server executing on the controller
 DEFAULT_PYMERANG_SERVER_PORT = 50061
 # Default interval between two keep alive messages
-DEFAULT_KEEP_ALIVE_INTERVAL = 30
+DEFAULT_KEEP_ALIVE_INTERVAL = 5
 # Max number of keep alive messages lost
 # before taking a corrective action
-DEFAULT_MAX_KEEP_ALIVE_LOST = 3
+DEFAULT_MAX_KEEP_ALIVE_LOST = 4
 # Secure option
 DEFAULT_SECURE = False
 # Server certificate
@@ -44,7 +44,7 @@ STATUS_SUCCESS = status_codes_pb2.STATUS_SUCCESS
 STATUS_UNAUTHORIZED = status_codes_pb2.STATUS_UNAUTHORIZED
 STATUS_INTERNAL_ERROR = status_codes_pb2.STATUS_INTERNAL_ERROR
 
-MAX_ALLOWED_RECONCILIATION_FAILURES = 10
+MAX_ALLOWED_RECONCILIATION_FAILURES = 10000000
 
 
 class PymerangServicer(pymerang_pb2_grpc.PymerangServicer):
