@@ -49,6 +49,6 @@ setup(
         'websocket-client>=0.56.0',
         'ping3>=2.4.0',
         'pynat',
-        'pyroute2'
+        'pyroute2==0.6.9'
     ]
 )
